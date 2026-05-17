@@ -32,7 +32,7 @@ export default function ResetPasswordScreen() {
       const { error: err } = await supabase.auth.updateUser({ password })
       if (err) throw err
       setDone(true)
-      setTimeout(() => router.replace('/auth'), 2000)
+      setTimeout(() => router.replace('/(tabs)'), 2000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
     } finally {
