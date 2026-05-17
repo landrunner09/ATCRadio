@@ -1,10 +1,12 @@
 // app/auth.tsx
 import { useState } from 'react'
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
+import { useRouter } from 'expo-router'
 import { useAuthStore } from '@/store/authStore'
 import { supabase } from '@/lib/supabase'
 
 export default function AuthScreen() {
+  const router = useRouter()
   const { signIn, signUp, continueAsGuest } = useAuthStore()
   const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>('signin')
   const [email, setEmail] = useState('')
@@ -146,7 +148,10 @@ export default function AuthScreen() {
         )}
 
         {mode !== 'reset' && (
-          <TouchableOpacity className="items-center" onPress={continueAsGuest}>
+          <TouchableOpacity
+            className="items-center"
+            onPress={() => { continueAsGuest(); router.replace('/(tabs)') }}
+          >
             <Text className="text-dim text-xs">Continue as guest (progress not saved)</Text>
           </TouchableOpacity>
         )}
