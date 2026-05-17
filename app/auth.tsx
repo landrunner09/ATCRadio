@@ -23,8 +23,11 @@ export default function AuthScreen() {
       if (!email.trim()) { setError('Enter your email address'); return }
       setLoading(true)
       try {
+        const origin = typeof window !== 'undefined'
+          ? (window.location.hostname === 'localhost' ? 'https://atcradio.vercel.app' : window.location.origin)
+          : 'atcradio://'
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${typeof window !== 'undefined' ? window.location.origin : 'atcradio://'}/auth/reset`,
+          redirectTo: `${origin}/auth/reset`,
         })
         if (err) throw err
         setInfo('Check your email — a password reset link is on its way.')

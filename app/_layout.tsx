@@ -29,6 +29,7 @@ export default function RootLayout() {
         <Stack.Screen name="flight/hud" />
         <Stack.Screen name="flight/debrief" />
         <Stack.Screen name="airport/add" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="auth/reset" />
       </Stack>
     </ErrorBoundary>
   )
