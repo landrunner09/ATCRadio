@@ -1,0 +1,332 @@
+{
+  "airport_icao": "KRHV",
+  "airport_name": "Reid-Hillview Airport",
+  "city": "San Jose, CA",
+  "tower_freq": "119.8",
+  "approach_freq": "121.3",
+  "atis_freq": "125.2",
+  "pattern_altitude_ft": 1400,
+  "runways": ["13L", "31R", "13R", "31L"],
+  "taxiways": ["bravo", "charlie"],
+  "scenario_name": "Reid-Hillview Pattern Flight",
+  "scenario_description": "Full VFR flight at KRHV: ATIS, taxi to 31L, departure, NorCal handoff, practice area, return, pattern, landing.",
+  "estimated_duration_min": 15,
+  "beats": [
+    {
+      "id": "krhv.atis.listen",
+      "phase": "LISTEN_ATIS",
+      "skill_tag": "atis_extraction",
+      "speaker": "atis",
+      "voice_role": "krhv_atis",
+      "line_template": "Reid-Hillview Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.",
+      "line_variants": [
+        "Reid-Hillview information {atis_letter}, wind {weather.wind}, visibility {weather.vis}. Altimeter {weather.altimeter}. Active runway {runway}. Inform Reid-Hillview Tower on initial contact you have information {atis_letter}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "standard" },
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "altimeter", "value": "{altimeter}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Extract and remember ATIS letter, active runway, and altimeter setting"]
+      },
+      "on_pass": { "next": "krhv.taxi.request" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "Please verify you copied ATIS information {atis_letter}.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.taxi.request" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.taxi.request",
+      "phase": "TAXI_REQUEST",
+      "skill_tag": "taxi_request",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, Reid-Hillview Tower, go ahead.",
+      "line_variants": [
+        "Reid-Hillview Tower, {callsign}.",
+        "{callsign}, Reid-Hillview Tower, say request."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" },
+          { "slot": "action", "value": "taxi", "criticality": "standard" },
+          { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["State your callsign, location, request, and that you have ATIS information"]
+      },
+      "on_pass": { "next": "krhv.taxi.clearance" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, say full request with ATIS.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.taxi.clearance" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.taxi.clearance",
+      "phase": "TAXI",
+      "skill_tag": "taxi_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, Reid-Hillview Tower, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.",
+      "line_variants": [
+        "{callsign}, taxi runway {runway} via taxiway {taxiway}, hold short {runway}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "via", "value": "{taxiway}", "criticality": "standard" },
+          { "slot": "hold_short_of", "value": "{runway}", "criticality": "critical" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back the hold short instruction verbatim — FAA requires this"]
+      },
+      "on_pass": { "next": "krhv.runup.ready" },
+      "on_partial": {
+        "missing_critical": ["hold_short_of"],
+        "controller_correction": "{callsign}, read back hold short.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.runup.ready" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.runup.ready",
+      "phase": "RUNUP_HOLD",
+      "skill_tag": "runup_ready",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, hold short runway {runway}, traffic on final.",
+      "line_variants": [
+        "{callsign}, hold short runway {runway}, landing traffic."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "hold_short_of", "value": "{runway}", "criticality": "critical" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Acknowledge the hold short instruction with callsign and runway"]
+      },
+      "on_pass": { "next": "krhv.takeoff.clearance" },
+      "on_partial": {
+        "missing_critical": ["hold_short_of"],
+        "controller_correction": "{callsign}, hold short runway {runway}, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.takeoff.clearance" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.takeoff.clearance",
+      "phase": "TAKEOFF_CLEARANCE",
+      "skill_tag": "takeoff_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, runway {runway}, cleared for takeoff, wind {weather.wind}.",
+      "line_variants": [
+        "{callsign}, cleared takeoff runway {runway}, wind {weather.wind}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "action", "value": "cleared", "criticality": "standard" },
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back cleared for takeoff and the runway number"]
+      },
+      "on_pass": { "next": "krhv.departure.freq" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, say again.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.departure.freq" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.departure.freq",
+      "phase": "DEPARTURE",
+      "skill_tag": "freq_change_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, contact NorCal Approach on {approach_freq}, good day.",
+      "line_variants": [
+        "{callsign}, frequency change approved, NorCal Approach {approach_freq}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "frequency", "value": "{approach_freq}", "criticality": "critical" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back the frequency clearly — this is a critical handoff"]
+      },
+      "on_pass": { "next": "krhv.practice.checkin" },
+      "on_partial": {
+        "missing_critical": ["frequency"],
+        "controller_correction": "{callsign}, NorCal on {approach_freq}, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.practice.checkin" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.practice.checkin",
+      "phase": "PRACTICE_AREA",
+      "skill_tag": "position_report_norcal",
+      "speaker": "approach",
+      "voice_role": "norcal_approach",
+      "line_template": "{callsign}, NorCal Approach, radar contact, squawk 4523, report leaving the practice area.",
+      "line_variants": [
+        "{callsign}, NorCal, radar contact, squawk 4523."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" },
+          { "slot": "squawk", "value": "4523", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Acknowledge radar contact and read back the squawk code"]
+      },
+      "on_pass": { "next": "krhv.return.request" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, squawk 4523, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.return.request" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.return.request",
+      "phase": "RETURN_INBOUND",
+      "skill_tag": "inbound_call",
+      "speaker": "approach",
+      "voice_role": "norcal_approach",
+      "line_template": "{callsign}, cleared to return to Reid-Hillview, contact Tower on {tower_freq}.",
+      "line_variants": [
+        "{callsign}, Reid-Hillview altimeter {weather.altimeter}, contact Reid-Hillview Tower {tower_freq}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "frequency", "value": "{tower_freq}", "criticality": "critical" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back the tower frequency for the handoff"]
+      },
+      "on_pass": { "next": "krhv.pattern.entry" },
+      "on_partial": {
+        "missing_critical": ["frequency"],
+        "controller_correction": "{callsign}, Tower on {tower_freq}, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.pattern.entry" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.pattern.entry",
+      "phase": "PATTERN_ENTRY",
+      "skill_tag": "pattern_entry_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, enter left downwind runway {runway}, number two, follow the Skyhawk on downwind.",
+      "line_variants": [
+        "{callsign}, left downwind runway {runway}, number two traffic."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "pattern_leg", "value": "downwind", "criticality": "standard" },
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back pattern leg, runway, and acknowledge traffic if instructed"]
+      },
+      "on_pass": { "next": "krhv.landing.clearance" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, say again pattern entry.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.landing.clearance" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.landing.clearance",
+      "phase": "LANDING_CLEARANCE",
+      "skill_tag": "landing_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, runway {runway}, cleared to land, wind {weather.wind}.",
+      "line_variants": [
+        "{callsign}, cleared land runway {runway}, wind {weather.wind}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "action", "value": "cleared", "criticality": "standard" },
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Read back cleared to land and the runway number"]
+      },
+      "on_pass": { "next": "krhv.taxi.parking" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, say again.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "krhv.taxi.parking" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "krhv.taxi.parking",
+      "phase": "TAXI_TO_PARKING",
+      "skill_tag": "taxi_to_parking_readback",
+      "speaker": "tower",
+      "voice_role": "krhv_tower",
+      "line_template": "{callsign}, turn right {taxiway}, taxi to parking.",
+      "line_variants": [
+        "{callsign}, taxi to parking via {taxiway}, see ya."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [
+          { "slot": "via", "value": "{taxiway}", "criticality": "standard" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
+        ],
+        "phraseology_hints": ["Acknowledge the taxi route to parking"]
+      },
+      "on_pass": { "next": "__debrief__" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "{callsign}, taxi parking via {taxiway}, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "__debrief__" },
+      "on_say_again": { "replay_audio": true }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "ATCRadio",
+    "slug": "atcradio",
+    "version": "1.0.0",
+    "scheme": "atcradio",
+    "web": { "bundler": "metro", "output": "static" },
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true }
+  }
+}
