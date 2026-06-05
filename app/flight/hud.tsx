@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { View, Text, TouchableOpacity, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useMachine } from '@xstate/react'
@@ -54,15 +54,20 @@ export default function HudScreen() {
 
   const ctx = state.context
   const beat = ctx.pack ? ctx.pack.beats[ctx.beatIndex] ?? null : null
-  const atcLine = beat && ctx.pack && ctx.scenarioContext
-    ? pickLine(beat, ctx.pack, ctx.scenarioContext)
-    : ''
-
-  // Next beat's ATC line — prefetched while the user is responding
   const nextBeat = ctx.pack ? ctx.pack.beats[(ctx.beatIndex ?? 0) + 1] ?? null : null
-  const nextAtcLine = nextBeat && ctx.pack && ctx.scenarioContext
-    ? pickLine(nextBeat, ctx.pack, ctx.scenarioContext)
-    : ''
+
+  // Memoised per beatIndex — pickLine calls Math.random() so must NOT be recomputed
+  // on every render, or the dependency in the atc_speaking effect fires TTS twice.
+  const atcLine = useMemo(
+    () => beat && ctx.pack && ctx.scenarioContext ? pickLine(beat, ctx.pack, ctx.scenarioContext) : '',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ctx.beatIndex, !!ctx.pack, !!ctx.scenarioContext],
+  )
+  const nextAtcLine = useMemo(
+    () => nextBeat && ctx.pack && ctx.scenarioContext ? pickLine(nextBeat, ctx.pack, ctx.scenarioContext) : '',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ctx.beatIndex, !!ctx.pack, !!ctx.scenarioContext],
+  )
 
   const { play: playTTS, replay: replayTTS, prefetch: prefetchTTS } = useTTSPlayer({
     text: atcLine,
