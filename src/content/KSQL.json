@@ -1,70 +1,73 @@
 {
   "airport_icao": "KSQL",
-  "airport_name": "San Carlos Airport",
+  "airport_name": "San Carlos",
   "city": "San Carlos, CA",
   "tower_freq": "119.0",
   "approach_freq": "120.3",
   "atis_freq": "125.9",
+  "approach_facility": "NorCal Approach",
+  "scenario_type": "departure",
+  "controlled": true,
   "pattern_altitude_ft": 800,
   "runways": ["12", "30"],
   "taxiways": ["alpha"],
-  "scenario_name": "San Carlos Pattern Flight",
-  "scenario_description": "Full VFR flight at KSQL: ATIS, taxi to 30, departure, NorCal handoff, practice area, return, pattern, landing.",
-  "estimated_duration_min": 15,
+  "scenario_name": "San Carlos VFR Departure",
+  "scenario_description": "Tower-only Class D airport. ATIS, taxi via Tower, runup, departure, NorCal flight following, practice area, return, pattern entry, landing.",
+  "estimated_duration_min": 20,
   "beats": [
     {
       "id": "ksql.atis.listen",
-      "phase": "LISTEN_ATIS",
+      "phase": "ATIS",
       "skill_tag": "atis_extraction",
       "speaker": "atis",
       "voice_role": "ksql_atis",
       "line_template": "San Carlos Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.",
       "line_variants": [
-        "San Carlos information {atis_letter}, wind {weather.wind}, visibility {weather.vis}. Altimeter {weather.altimeter}. Active runway {runway}. Inform San Carlos Tower on initial contact you have information {atis_letter}."
+        "San Carlos information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}. Altimeter {weather.altimeter}. Active runway {runway}. Inform Tower on initial contact you have information {atis_letter}."
       ],
       "expected_student_response": {
         "type": "readback",
         "required_slots": [
-          { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "standard" },
+          { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "critical" },
           { "slot": "runway", "value": "{runway}", "criticality": "standard" },
-          { "slot": "altimeter", "value": "{altimeter}", "criticality": "standard" }
+          { "slot": "altimeter", "value": "{weather.altimeter}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Extract and remember ATIS letter, active runway, and altimeter setting"]
+        "phraseology_hints": ["Confirm the ATIS letter, active runway, and altimeter you just heard"]
       },
-      "on_pass": { "next": "ksql.taxi.request" },
+      "on_pass": { "next": "ksql.taxi.call" },
       "on_partial": {
-        "missing_critical": [],
-        "controller_correction": "Please verify you copied ATIS information {atis_letter}.",
+        "missing_critical": ["atis_letter"],
+        "controller_correction": "Listen again — confirm information {atis_letter}, runway {runway}, altimeter {weather.altimeter}.",
         "retry_same_beat": true,
         "max_retries": 2
       },
-      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.taxi.request" },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.taxi.call" },
       "on_say_again": { "replay_audio": true }
     },
     {
-      "id": "ksql.taxi.request",
-      "phase": "TAXI_REQUEST",
-      "skill_tag": "taxi_request",
+      "id": "ksql.taxi.call",
+      "phase": "INITIAL_CALL",
+      "skill_tag": "initial_call",
+      "type": "pilot_initiated",
+      "cue_text": "Call {airport_name} Tower ({tower_freq}).\nState: callsign · location · request taxi · have information {atis_letter}",
       "speaker": "tower",
       "voice_role": "ksql_tower",
-      "line_template": "{callsign}, San Carlos Tower, go ahead.",
-      "line_variants": [
-        "San Carlos Tower, {callsign}.",
-        "{callsign}, San Carlos Tower, say request."
-      ],
+      "line_template": "",
       "expected_student_response": {
-        "type": "readback",
+        "type": "pilot_initiated",
         "required_slots": [
-          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "critical" },
           { "slot": "action", "value": "taxi", "criticality": "standard" },
           { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["State your callsign, location, request, and that you have ATIS information"]
+        "phraseology_hints": [
+          "{airport_name} Tower, {callsign}, at the ramp, request taxi, information {atis_letter}."
+        ]
       },
       "on_pass": { "next": "ksql.taxi.clearance" },
       "on_partial": {
-        "missing_critical": [],
-        "controller_correction": "{callsign}, say full request with ATIS.",
+        "missing_critical": ["callsign"],
+        "controller_correction": "{callsign}, {airport_name} Tower — say callsign, request, and ATIS.",
         "retry_same_beat": true,
         "max_retries": 2
       },
@@ -77,9 +80,9 @@
       "skill_tag": "taxi_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
-      "line_template": "{callsign}, San Carlos Tower, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.",
+      "line_template": "{callsign}, {airport_name} Tower, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.",
       "line_variants": [
-        "{callsign}, taxi runway {runway} via taxiway {taxiway}, hold short {runway}."
+        "{callsign}, taxi runway {runway} via {taxiway}, hold short {runway}."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -89,27 +92,58 @@
           { "slot": "hold_short_of", "value": "{runway}", "criticality": "critical" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back the hold short instruction verbatim — FAA requires this"]
+        "phraseology_hints": ["Taxi runway {runway} via {taxiway}, hold short {runway}, {callsign}."]
       },
-      "on_pass": { "next": "ksql.runup.ready" },
+      "on_pass": { "next": "ksql.runup.ready_call" },
       "on_partial": {
         "missing_critical": ["hold_short_of"],
-        "controller_correction": "{callsign}, read back hold short.",
+        "controller_correction": "{callsign}, read back hold short of runway {runway}.",
         "retry_same_beat": true,
         "max_retries": 2
       },
-      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.runup.ready" },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.runup.ready_call" },
       "on_say_again": { "replay_audio": true }
     },
     {
-      "id": "ksql.runup.ready",
-      "phase": "RUNUP_HOLD",
-      "skill_tag": "runup_ready",
+      "id": "ksql.runup.ready_call",
+      "phase": "RUNUP",
+      "skill_tag": "ready_for_departure",
+      "type": "pilot_initiated",
+      "cue_text": "Runup complete. Call {airport_name} Tower.\nState: callsign · holding short runway {runway} · ready for departure",
+      "speaker": "tower",
+      "voice_role": "ksql_tower",
+      "line_template": "",
+      "expected_student_response": {
+        "type": "pilot_initiated",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "critical" },
+          { "slot": "runway", "value": "{runway}", "criticality": "standard" },
+          { "slot": "action", "value": "ready", "criticality": "standard" }
+        ],
+        "phraseology_hints": [
+          "{airport_name} Tower, {callsign}, holding short runway {runway}, ready for departure."
+        ]
+      },
+      "on_pass": { "next": "ksql.runup.hold_short" },
+      "on_partial": {
+        "missing_critical": ["callsign"],
+        "controller_correction": "{callsign}, say callsign and runway.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.runup.hold_short" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "ksql.runup.hold_short",
+      "phase": "HOLD_SHORT",
+      "skill_tag": "hold_short_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
       "line_template": "{callsign}, hold short runway {runway}, traffic on final.",
       "line_variants": [
-        "{callsign}, hold short runway {runway}, landing traffic."
+        "{callsign}, hold short runway {runway}, landing traffic.",
+        "{callsign}, hold short runway {runway}, traffic two-mile final."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -117,7 +151,7 @@
           { "slot": "hold_short_of", "value": "{runway}", "criticality": "critical" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Acknowledge the hold short instruction with callsign and runway"]
+        "phraseology_hints": ["Hold short runway {runway}, {callsign}."]
       },
       "on_pass": { "next": "ksql.takeoff.clearance" },
       "on_partial": {
@@ -131,42 +165,44 @@
     },
     {
       "id": "ksql.takeoff.clearance",
-      "phase": "TAKEOFF_CLEARANCE",
+      "phase": "TAKEOFF",
       "skill_tag": "takeoff_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
       "line_template": "{callsign}, runway {runway}, cleared for takeoff, wind {weather.wind}.",
       "line_variants": [
-        "{callsign}, cleared takeoff runway {runway}, wind {weather.wind}."
+        "{callsign}, cleared for takeoff runway {runway}, wind {weather.wind}.",
+        "{callsign}, fly runway heading, cleared for takeoff runway {runway}, wind {weather.wind}."
       ],
       "expected_student_response": {
         "type": "readback",
         "required_slots": [
-          { "slot": "action", "value": "cleared", "criticality": "standard" },
+          { "slot": "action", "value": "cleared for takeoff", "criticality": "critical" },
           { "slot": "runway", "value": "{runway}", "criticality": "standard" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back cleared for takeoff and the runway number"]
+        "phraseology_hints": ["Cleared for takeoff runway {runway}, {callsign}."]
       },
-      "on_pass": { "next": "ksql.departure.freq" },
+      "on_pass": { "next": "ksql.departure.handoff" },
       "on_partial": {
-        "missing_critical": [],
+        "missing_critical": ["action"],
         "controller_correction": "{callsign}, say again.",
         "retry_same_beat": true,
         "max_retries": 2
       },
-      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.departure.freq" },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.departure.handoff" },
       "on_say_again": { "replay_audio": true }
     },
     {
-      "id": "ksql.departure.freq",
+      "id": "ksql.departure.handoff",
       "phase": "DEPARTURE",
       "skill_tag": "freq_change_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
-      "line_template": "{callsign}, contact NorCal Approach on {approach_freq}, good day.",
+      "line_template": "{callsign}, contact {approach_facility} on {approach_freq}, good day.",
       "line_variants": [
-        "{callsign}, frequency change approved, NorCal Approach {approach_freq}."
+        "{callsign}, frequency change approved, {approach_facility} {approach_freq}.",
+        "{callsign}, {approach_facility} {approach_freq}, so long."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -174,55 +210,117 @@
           { "slot": "frequency", "value": "{approach_freq}", "criticality": "critical" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back the frequency clearly — this is a critical handoff"]
+        "phraseology_hints": ["{approach_freq}, {callsign}, good day."]
       },
-      "on_pass": { "next": "ksql.practice.checkin" },
+      "on_pass": { "next": "ksql.approach.checkin" },
       "on_partial": {
         "missing_critical": ["frequency"],
-        "controller_correction": "{callsign}, NorCal on {approach_freq}, confirm.",
+        "controller_correction": "{callsign}, {approach_facility} on {approach_freq}, confirm.",
         "retry_same_beat": true,
         "max_retries": 2
       },
-      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.practice.checkin" },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.approach.checkin" },
       "on_say_again": { "replay_audio": true }
     },
     {
-      "id": "ksql.practice.checkin",
-      "phase": "PRACTICE_AREA",
-      "skill_tag": "position_report_norcal",
+      "id": "ksql.approach.checkin",
+      "phase": "APPROACH_CHECKIN",
+      "skill_tag": "approach_initial_call",
+      "type": "pilot_initiated",
+      "cue_text": "You've switched to {approach_facility} ({approach_freq}). Check in.\nState: {approach_facility} · callsign · altitude · position · request flight following",
       "speaker": "approach",
-      "voice_role": "norcal_approach",
-      "line_template": "{callsign}, NorCal Approach, radar contact, squawk 4523, report leaving the practice area.",
+      "voice_role": "ksql_approach",
+      "line_template": "",
+      "expected_student_response": {
+        "type": "pilot_initiated",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "critical" },
+          { "slot": "altitude", "value": "altitude", "criticality": "standard" },
+          { "slot": "request", "value": "flight following", "criticality": "standard" }
+        ],
+        "phraseology_hints": [
+          "{approach_facility}, {callsign}, one thousand five hundred, departing {airport_name}, request flight following."
+        ]
+      },
+      "on_pass": { "next": "ksql.approach.squawk" },
+      "on_partial": {
+        "missing_critical": ["callsign"],
+        "controller_correction": "Aircraft calling, say callsign and request.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.approach.squawk" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "ksql.approach.squawk",
+      "phase": "SQUAWK_ASSIGN",
+      "skill_tag": "squawk_readback",
+      "speaker": "approach",
+      "voice_role": "ksql_approach",
+      "line_template": "{callsign}, radar contact, squawk {squawk_code}, report leaving the practice area.",
       "line_variants": [
-        "{callsign}, NorCal, radar contact, squawk 4523."
+        "{callsign}, squawk {squawk_code}, ident.",
+        "{callsign}, radar contact, squawk {squawk_code}, altimeter {weather.altimeter}."
       ],
       "expected_student_response": {
         "type": "readback",
         "required_slots": [
-          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" },
-          { "slot": "squawk", "value": "4523", "criticality": "standard" }
+          { "slot": "squawk", "value": "{squawk_code}", "criticality": "critical" },
+          { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Acknowledge radar contact and read back the squawk code"]
+        "phraseology_hints": ["Squawk {squawk_code}, {callsign}."]
       },
-      "on_pass": { "next": "ksql.return.request" },
+      "on_pass": { "next": "ksql.approach.leaving" },
       "on_partial": {
-        "missing_critical": [],
-        "controller_correction": "{callsign}, squawk 4523, confirm.",
+        "missing_critical": ["squawk"],
+        "controller_correction": "{callsign}, squawk {squawk_code}, confirm.",
         "retry_same_beat": true,
         "max_retries": 2
       },
-      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.return.request" },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.approach.leaving" },
       "on_say_again": { "replay_audio": true }
     },
     {
-      "id": "ksql.return.request",
-      "phase": "RETURN_INBOUND",
-      "skill_tag": "inbound_call",
+      "id": "ksql.approach.leaving",
+      "phase": "LEAVING_PRACTICE_AREA",
+      "skill_tag": "position_report",
+      "type": "pilot_initiated",
+      "cue_text": "Practice area complete. Report to {approach_facility}.\nState: callsign · leaving the practice area · inbound {airport_name}",
       "speaker": "approach",
-      "voice_role": "norcal_approach",
-      "line_template": "{callsign}, cleared to return to San Carlos, contact Tower on {tower_freq} over the bay.",
+      "voice_role": "ksql_approach",
+      "line_template": "",
+      "expected_student_response": {
+        "type": "pilot_initiated",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "critical" },
+          { "slot": "action", "value": "leaving", "criticality": "standard" },
+          { "slot": "destination", "value": "{airport_name}", "criticality": "standard" }
+        ],
+        "phraseology_hints": [
+          "{approach_facility}, {callsign}, leaving the practice area, inbound {airport_name}."
+        ]
+      },
+      "on_pass": { "next": "ksql.approach.release" },
+      "on_partial": {
+        "missing_critical": ["callsign"],
+        "controller_correction": "{callsign}, say again.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.approach.release" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "ksql.approach.release",
+      "phase": "RETURN_HANDOFF",
+      "skill_tag": "freq_change_readback",
+      "speaker": "approach",
+      "voice_role": "ksql_approach",
+      "line_template": "{callsign}, altimeter {weather.altimeter}, contact {airport_name} Tower on {tower_freq}, good day.",
       "line_variants": [
-        "{callsign}, San Carlos altimeter {weather.altimeter}, contact San Carlos Tower {tower_freq}."
+        "{callsign}, squawk VFR, contact Tower {tower_freq}.",
+        "{callsign}, radar service terminated, contact {airport_name} Tower {tower_freq}."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -230,12 +328,42 @@
           { "slot": "frequency", "value": "{tower_freq}", "criticality": "critical" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back the tower frequency for the handoff"]
+        "phraseology_hints": ["Tower {tower_freq}, {callsign}, good day."]
       },
-      "on_pass": { "next": "ksql.pattern.entry" },
+      "on_pass": { "next": "ksql.pattern.inbound_call" },
       "on_partial": {
         "missing_critical": ["frequency"],
         "controller_correction": "{callsign}, Tower on {tower_freq}, confirm.",
+        "retry_same_beat": true,
+        "max_retries": 2
+      },
+      "on_fail_after_retries": { "scaffold_mode": true, "next_after_scaffold_pass": "ksql.pattern.inbound_call" },
+      "on_say_again": { "replay_audio": true }
+    },
+    {
+      "id": "ksql.pattern.inbound_call",
+      "phase": "INBOUND_CALL",
+      "skill_tag": "inbound_call",
+      "type": "pilot_initiated",
+      "cue_text": "Now on {airport_name} Tower ({tower_freq}). Report inbound.\nState: {airport_name} Tower · callsign · position & altitude · inbound full stop · have information {atis_letter}",
+      "speaker": "tower",
+      "voice_role": "ksql_tower",
+      "line_template": "",
+      "expected_student_response": {
+        "type": "pilot_initiated",
+        "required_slots": [
+          { "slot": "callsign", "value": "{callsign}", "criticality": "critical" },
+          { "slot": "action", "value": "inbound", "criticality": "standard" },
+          { "slot": "atis_letter", "value": "{atis_letter}", "criticality": "standard" }
+        ],
+        "phraseology_hints": [
+          "{airport_name} Tower, {callsign}, five miles south, one thousand, inbound full stop, information {atis_letter}."
+        ]
+      },
+      "on_pass": { "next": "ksql.pattern.entry" },
+      "on_partial": {
+        "missing_critical": ["callsign"],
+        "controller_correction": "Aircraft calling {airport_name} Tower, say callsign and position.",
         "retry_same_beat": true,
         "max_retries": 2
       },
@@ -248,9 +376,11 @@
       "skill_tag": "pattern_entry_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
-      "line_template": "{callsign}, enter left downwind runway {runway}, number two, follow the Skyhawk on downwind.",
+      "line_template": "{callsign}, enter left downwind runway {runway}, number two, follow the Cessna on downwind.",
       "line_variants": [
-        "{callsign}, left downwind runway {runway}, number two traffic."
+        "{callsign}, make left traffic runway {runway}, number one, report midfield downwind.",
+        "{callsign}, enter right downwind runway {runway}, number two, traffic on base.",
+        "{callsign}, enter left base runway {runway}, number one, cleared to land."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -259,7 +389,7 @@
           { "slot": "runway", "value": "{runway}", "criticality": "standard" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back pattern leg, runway, and acknowledge traffic if instructed"]
+        "phraseology_hints": ["Left downwind runway {runway}, number two, traffic in sight, {callsign}."]
       },
       "on_pass": { "next": "ksql.landing.clearance" },
       "on_partial": {
@@ -273,26 +403,27 @@
     },
     {
       "id": "ksql.landing.clearance",
-      "phase": "LANDING_CLEARANCE",
+      "phase": "LANDING",
       "skill_tag": "landing_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
       "line_template": "{callsign}, runway {runway}, cleared to land, wind {weather.wind}.",
       "line_variants": [
-        "{callsign}, cleared land runway {runway}, wind {weather.wind}."
+        "{callsign}, cleared to land runway {runway}, wind {weather.wind}.",
+        "{callsign}, number one, runway {runway}, cleared to land."
       ],
       "expected_student_response": {
         "type": "readback",
         "required_slots": [
-          { "slot": "action", "value": "cleared", "criticality": "standard" },
+          { "slot": "action", "value": "cleared to land", "criticality": "critical" },
           { "slot": "runway", "value": "{runway}", "criticality": "standard" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Read back cleared to land and the runway number"]
+        "phraseology_hints": ["Cleared to land runway {runway}, {callsign}."]
       },
       "on_pass": { "next": "ksql.taxi.parking" },
       "on_partial": {
-        "missing_critical": [],
+        "missing_critical": ["action"],
         "controller_correction": "{callsign}, say again.",
         "retry_same_beat": true,
         "max_retries": 2
@@ -306,9 +437,10 @@
       "skill_tag": "taxi_to_parking_readback",
       "speaker": "tower",
       "voice_role": "ksql_tower",
-      "line_template": "{callsign}, turn right {taxiway}, taxi to parking, contact ground point niner when clear.",
+      "line_template": "{callsign}, turn right {taxiway}, taxi to parking.",
       "line_variants": [
-        "{callsign}, taxi to parking via {taxiway}, see ya."
+        "{callsign}, taxi to parking via {taxiway}.",
+        "{callsign}, clear the runway, taxi to parking."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -316,12 +448,12 @@
           { "slot": "via", "value": "{taxiway}", "criticality": "standard" },
           { "slot": "callsign", "value": "{callsign}", "criticality": "standard" }
         ],
-        "phraseology_hints": ["Acknowledge the taxi route to parking"]
+        "phraseology_hints": ["Taxi to parking via {taxiway}, {callsign}."]
       },
       "on_pass": { "next": "__debrief__" },
       "on_partial": {
         "missing_critical": [],
-        "controller_correction": "{callsign}, taxi parking via {taxiway}, confirm.",
+        "controller_correction": "{callsign}, taxi to parking via {taxiway}, confirm.",
         "retry_same_beat": true,
         "max_retries": 2
       },

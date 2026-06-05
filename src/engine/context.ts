@@ -33,7 +33,7 @@ function randomSquawk(): string {
 }
 
 export function generateScenarioContext(
-  pack?: Pick<ContentPack, 'airport_icao' | 'runways' | 'taxiways'>,
+  pack?: Pick<ContentPack, 'airport_icao' | 'runways' | 'taxiways' | 'approach_facility'>,
   overrides?: Partial<ScenarioContext>,
   tailNumber?: string,
 ): ScenarioContext {
@@ -58,7 +58,7 @@ export function generateScenarioContext(
       [`${icao}_atis`]: 'stub_atis',
     },
     squawk_code: randomSquawk(),
-    approach_facility: 'Approach',
+    approach_facility: pack?.approach_facility ?? 'Approach',
     ...overrides,
   }
 }

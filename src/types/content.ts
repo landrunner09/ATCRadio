@@ -73,6 +73,10 @@ export interface ContentPack {
   tower_freq: string
   approach_freq: string
   atis_freq: string
+  /** Approach facility name, e.g. "NorCal Approach", "SoCal Approach". Used in {approach_facility} templates. */
+  approach_facility?: string
+  /** Ground control frequency. Present only at airports with a separate ground controller. */
+  ground_freq?: string
   /** 'departure' or 'arrival'. Defaults to 'departure' for built-in packs. */
   scenario_type: 'departure' | 'arrival'
   /** true = tower-controlled, false = CTAF/uncontrolled. Defaults to true. */

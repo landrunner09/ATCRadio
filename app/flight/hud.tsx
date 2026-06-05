@@ -303,7 +303,17 @@ export default function HudScreen() {
               ? beat.cue_text
                   .replace(/{approach_facility}/g, ctx.scenarioContext?.approach_facility ?? 'Approach')
                   .replace(/{airport_icao}/g, pack.airport_icao)
+                  .replace(/{airport_name}/g, FULL_PACK.airport_name)
+                  .replace(/{callsign}/g, ctx.scenarioContext?.callsign ?? '')
+                  .replace(/{runway}/g, ctx.scenarioContext?.runway_in_use ?? '')
+                  .replace(/{taxiway}/g, ctx.scenarioContext?.departure_taxiway ?? '')
+                  .replace(/{atis_letter}/g, ctx.scenarioContext?.atis_letter ?? '')
+                  .replace(/{tower_freq}/g, FULL_PACK.tower_freq)
+                  .replace(/{approach_freq}/g, FULL_PACK.approach_freq)
+                  .replace(/{ground_freq}/g, (FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
+                  .replace(/{squawk_code}/g, ctx.scenarioContext?.squawk_code ?? '')
                   .replace(/{weather\.altimeter}/g, ctx.scenarioContext?.weather.altimeter ?? '')
+                  .replace(/{weather\.wind}/g, ctx.scenarioContext?.weather.wind ?? '')
               : 'Make your radio call.'}
           </Text>
           {state.value === 'awaiting_response' && (
