@@ -10,7 +10,7 @@ import { useDrillStore } from '@/store/drillStore'
 import { useAuthStore } from '@/store/authStore'
 import { useAirportStore } from '@/store/airportStore'
 import { getPack } from '@/engine/packRegistry'
-import { useTTSPlayer } from '@/audio/useTTSPlayer'
+import { useTTSPlayer, prefetchTTSBatch } from '@/audio/useTTSPlayer'
 import { useASRRecorder } from '@/audio/useASRRecorder'
 import { VOICES, DEFAULT_ACCENT } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
@@ -85,6 +85,21 @@ export default function HudScreen() {
   const pttHandlingRef = useRef(false)
   const debriefFiredRef = useRef(false)
   const ambienceRef = useRef<RadioAmbienceSession | null>(null)
+
+  // Prefetch TTS for every ATC beat in the scenario upfront (best-effort, silent on failure).
+  // Fires all requests concurrently so Supabase Storage is warm before the user reaches each beat.
+  useEffect(() => {
+    const beats = pack.beats
+      .filter(b => b.type !== 'pilot_initiated')
+      .map(b => ({
+        text: pickLine(b, pack, scenarioContext),
+        voiceName: voice.name,
+        languageCode: voice.languageCode,
+      }))
+      .filter(b => b.text.trim())
+    prefetchTTSBatch(beats)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Stay in preflight until user taps BEGIN — required for browser autoplay policy
   useEffect(() => {

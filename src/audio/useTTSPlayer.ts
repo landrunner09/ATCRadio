@@ -1,26 +1,62 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { Platform } from 'react-native'
 import { Audio } from 'expo-av'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { playWithRadioFilter } from './radioFilter'
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
 
-// Module-level cache: survives beat transitions (hook re-instantiation).
-// Key: `${languageCode}:${voiceName}:${text}`
-const ttsUrlCache = new Map<string, string>()
+// ─── URL cache ────────────────────────────────────────────────────────────────
+// Two-tier: module-level Map (instant) + AsyncStorage (survives restarts, 30-day TTL)
 
-function cacheKey(text: string, voiceName: string, languageCode: string) {
-  return `${languageCode}:${voiceName}:${text}`
+const STORAGE_KEY = 'atcradio_tts_url_cache_v5'
+const TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+const urlCache = new Map<string, string>()
+
+// Load persisted cache on module init (non-blocking)
+;(async () => {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    const data = JSON.parse(raw) as Record<string, { url: string; ts: number }>
+    const now = Date.now()
+    for (const [k, { url, ts }] of Object.entries(data)) {
+      if (now - ts < TTL_MS) urlCache.set(k, url)
+    }
+  } catch {}
+})()
+
+async function persistCache() {
+  try {
+    const now = Date.now()
+    const data: Record<string, { url: string; ts: number }> = {}
+    for (const [k, url] of urlCache.entries()) {
+      data[k] = { url, ts: now }
+    }
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  } catch {}
 }
 
+// ─── Text normalization ───────────────────────────────────────────────────────
+// Normalize before hashing so whitespace differences don't produce different keys.
+function normalizeText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ')
+}
+
+function cacheKey(text: string, voiceName: string): string {
+  return `${voiceName}:${normalizeText(text)}`
+}
+
+// ─── TTS fetch ────────────────────────────────────────────────────────────────
 async function fetchTTSUrl(text: string, voiceName: string, languageCode: string): Promise<string> {
-  const key = cacheKey(text, voiceName, languageCode)
-  const cached = ttsUrlCache.get(key)
+  const key = cacheKey(text, voiceName)
+  const cached = urlCache.get(key)
   if (cached) return cached
 
   const ttsUrl = `${SUPABASE_URL}/functions/v1/tts`
-  const body = JSON.stringify({ text, voiceName, languageCode })
+  const body = JSON.stringify({ text: normalizeText(text), voiceName, languageCode })
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
@@ -46,11 +82,26 @@ async function fetchTTSUrl(text: string, voiceName: string, languageCode: string
       continue
     }
     const { url } = await res.json()
-    ttsUrlCache.set(key, url)
+    urlCache.set(key, url)
+    persistCache() // fire-and-forget
     return url
   }
   throw lastErr
 }
+
+// ─── Batch prefetch ───────────────────────────────────────────────────────────
+// Fire all requests concurrently. Failures are silently ignored (best-effort warm).
+export async function prefetchTTSBatch(
+  beats: Array<{ text: string; voiceName: string; languageCode: string }>
+): Promise<void> {
+  await Promise.allSettled(
+    beats
+      .filter(b => b.text.trim())
+      .map(b => fetchTTSUrl(b.text, b.voiceName, b.languageCode))
+  )
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 interface TTSPlayerOptions {
   text: string

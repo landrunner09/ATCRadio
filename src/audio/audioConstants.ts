@@ -1,10 +1,10 @@
-// Maps accent keys → Gemini TTS voice names.
-// Firm/even voices chosen for ATC cadence; ATC system instruction applied server-side.
+// Maps accent keys → OpenAI TTS voice names.
+// Voices chosen for ATC authority and clarity.
 export const VOICES: Record<string, { languageCode: string; name: string }> = {
-  american:   { languageCode: 'en-US', name: 'Alnilam' },   // Firm, steady
-  british:    { languageCode: 'en-GB', name: 'Schedar' },   // Even, measured
-  indian:     { languageCode: 'en-IN', name: 'Rasalghul' }, // Informative, clear
-  australian: { languageCode: 'en-AU', name: 'Gacrux' },    // Mature, authoritative
+  american:   { languageCode: 'en-US', name: 'onyx' },   // Deep, authoritative
+  british:    { languageCode: 'en-GB', name: 'fable' },  // Measured, clear
+  indian:     { languageCode: 'en-IN', name: 'echo' },   // Informative, neutral
+  australian: { languageCode: 'en-AU', name: 'alloy' },  // Steady, clear
 }
 
 export const DEFAULT_ACCENT = 'american'
