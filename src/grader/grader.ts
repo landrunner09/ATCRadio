@@ -39,16 +39,17 @@ function slotPresentInTranscript(
 
   if (normalizedTranscript.includes(normValue)) return true
 
-  // For callsign: check all chars appear in sequence without spaces.
-  // Also accept the suffix without the leading "N" — FAA allows pilots to
-  // drop the N-prefix after initial contact (e.g. "8472 Kilo" for "N8472K").
+  // For callsign: flexible matching per FAA/ATC standard abbreviation rules.
+  // Full: "N8472K", suffix-without-N: "8472K", last-4: "472K", last-3: "72K".
+  // After initial contact ATC uses last 3 alphanumeric; pilots mirror that.
   if (slot === 'callsign') {
-    const parts = normValue.replace(/\s+/g, '')
+    const parts = normValue.replace(/\s+/g, '')               // e.g. "n8472k"
     const transcriptNoSpace = normalizedTranscript.replace(/\s+/g, '')
-    if (transcriptNoSpace.includes(parts)) return true
-    // Strip leading 'n' (November) and try suffix alone
-    const suffix = parts.startsWith('n') ? parts.slice(1) : ''
-    if (suffix && transcriptNoSpace.includes(suffix)) return true
+    if (transcriptNoSpace.includes(parts)) return true         // full callsign
+    const suffix = parts.startsWith('n') ? parts.slice(1) : parts  // "8472k"
+    if (suffix && transcriptNoSpace.includes(suffix)) return true   // without N
+    if (suffix.length >= 4 && transcriptNoSpace.includes(suffix.slice(-4))) return true // last 4
+    if (suffix.length >= 3 && transcriptNoSpace.includes(suffix.slice(-3))) return true // last 3
     return false
   }
 

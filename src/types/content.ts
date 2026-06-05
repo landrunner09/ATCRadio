@@ -32,6 +32,13 @@ export interface Beat {
   type?: 'readback' | 'pilot_initiated'
   /** Shown as a cue card in the HUD when type === 'pilot_initiated' */
   cue_text?: string
+  /**
+   * Frequency template the student must dial in before transmitting, e.g. "{tower_freq}".
+   * Only valid on pilot_initiated beats. Resolved against pack + scenarioContext at runtime.
+   */
+  tune_to?: string
+  /** Display label for the frequency being tuned, e.g. "Ground" or "Tower". */
+  tune_label?: string
   speaker: 'tower' | 'approach' | 'ground' | 'atis'
   voice_role: string
   line_template: string

@@ -14,11 +14,12 @@ import { useTTSPlayer, prefetchTTSBatch } from '@/audio/useTTSPlayer'
 import { useASRRecorder } from '@/audio/useASRRecorder'
 import { VOICES, DEFAULT_ACCENT } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
+import { RadioTuner } from '@/components/RadioTuner'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
 
-type LocalState = 'idle' | 'recording' | 'processing'
+type LocalState = 'idle' | 'tuning' | 'recording' | 'processing'
 
 export default function HudScreen() {
   const router = useRouter()
@@ -31,6 +32,11 @@ export default function HudScreen() {
   const [localState, setLocalState] = useState<LocalState>('idle')
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
+  // Track which frequency the student currently has dialled in.
+  // Initialised to ATIS freq so the first tune goes from ATIS → Ground/Tower.
+  const [currentFreq, setCurrentFreq] = useState(() =>
+    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
+  )
 
   const { startRun, endRun, addAttempt, selectedAccent, tailNumber, setSessionNewBadges } = useFlightStore()
   const { mode, selectedBeatIds } = useDrillStore()
@@ -123,6 +129,27 @@ export default function HudScreen() {
       ambienceRef.current = null
     }
   }, [])
+
+  // Resolve tune_to template for the current beat (e.g. "{tower_freq}" → "119.8")
+  const resolveTuneTo = useCallback((template: string): string => {
+    return template
+      .replace(/{tower_freq}/g, FULL_PACK.tower_freq)
+      .replace(/{approach_freq}/g, FULL_PACK.approach_freq)
+      .replace(/{ground_freq}/g, (FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
+      .replace(/{atis_freq}/g, (FULL_PACK as { atis_freq?: string }).atis_freq ?? '')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq])
+
+  // When machine reaches awaiting_response on a pilot_initiated+tune_to beat, enter tuning state
+  useEffect(() => {
+    if (state.value !== 'awaiting_response') return
+    if (beat?.type === 'pilot_initiated' && beat.tune_to) {
+      setLocalState('tuning')
+    } else {
+      setLocalState('idle')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.value, ctx.beatIndex])
 
   // Prefetch next beat's TTS while the user is responding (hides API latency)
   useEffect(() => {
@@ -285,8 +312,21 @@ export default function HudScreen() {
         </View>
       )}
 
-      {/* Cue card — for pilot_initiated beats */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && (
+      {/* Radio tuner — shown before cue card when beat requires a freq change */}
+      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && beat.tune_to && localState === 'tuning' && (
+        <RadioTuner
+          targetFreq={resolveTuneTo(beat.tune_to)}
+          targetLabel={beat.tune_label ?? ''}
+          startFreq={currentFreq}
+          onConfirmed={(freq) => {
+            setCurrentFreq(freq)
+            setLocalState('idle')
+          }}
+        />
+      )}
+
+      {/* Cue card — for pilot_initiated beats (shown after tuning complete) */}
+      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && localState !== 'tuning' && (
         <View
           className="mx-5 mb-3 rounded-2xl p-4"
           style={{
@@ -295,6 +335,14 @@ export default function HudScreen() {
             backgroundColor: 'rgba(111,227,255,0.06)',
           }}
         >
+          {/* Show the tuned frequency */}
+          {beat.tune_to && (
+            <View className="flex-row items-center gap-2 mb-3 pb-2" style={{ borderBottomWidth: 1, borderColor: '#1C2548' }}>
+              <View className="w-2 h-2 rounded-full bg-go" />
+              <Text className="text-go text-xs font-mono font-bold">{currentFreq} MHz</Text>
+              <Text className="text-muted text-xs">· {beat.tune_label}</Text>
+            </View>
+          )}
           <Text className="text-accent text-xs font-bold uppercase tracking-widest mb-2">
             🎙 YOUR TRANSMISSION
           </Text>
