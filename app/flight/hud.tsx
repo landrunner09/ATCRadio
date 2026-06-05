@@ -41,15 +41,15 @@ export default function HudScreen() {
   const { streak } = useStats(user?.id ?? null)
   const { checkAndAward } = useBadges(user?.id ?? null)
 
-  const voice = getVoiceForAirport(FULL_PACK.airport_icao)
-
+  // FULL_PACK, voice, currentFreq all declared together — order matters here.
+  // These use each other so they must appear AFTER all hook calls above.
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
     : getPack(selectedIcao, customPacks)
 
-  // Track which frequency the student currently has dialled in.
+  const voice = getVoiceForAirport(FULL_PACK.airport_icao)
+
   // Initialised to ATIS freq so the first tune goes from ATIS → Ground/Tower.
-  // MUST be declared after FULL_PACK to avoid TDZ (const used before declaration).
   const [currentFreq, setCurrentFreq] = useState(() =>
     (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
   )
