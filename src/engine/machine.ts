@@ -43,10 +43,14 @@ function runGrader(
 
 /** A response "effectively passes" when no critical slots are missing AND at least one slot
  *  (critical or standard) was recognised in the transcript.  This prevents a completely
- *  garbled/empty utterance from advancing a beat whose slots are all marked `standard`. */
+ *  garbled/empty utterance from advancing a beat whose slots are all marked `standard`.
+ *  Exception: listen_only beats have no slots — if passed=true, always advance. */
 function effectivelyPassed(grade: GradeResult | null): boolean {
   if (!grade) return false
-  return grade.passed && grade.slotMatches.some(m => m.matched)
+  if (!grade.passed) return false
+  // No slots to match (e.g. listen_only ATIS beat) — auto-advance
+  if (grade.slotMatches.length === 0) return true
+  return grade.slotMatches.some(m => m.matched)
 }
 
 function makeAttemptRecord(

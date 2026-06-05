@@ -29,7 +29,6 @@ export default function HudScreen() {
     const pack = st === 'arrival' ? (ap[icao] ?? getPack(icao, cp)) : getPack(icao, cp)
     return generateScenarioContext(pack, undefined, tn)
   })
-  const [localState, setLocalState] = useState<LocalState>('idle')
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
 
@@ -41,15 +40,21 @@ export default function HudScreen() {
   const { streak } = useStats(user?.id ?? null)
   const { checkAndAward } = useBadges(user?.id ?? null)
 
-  // FULL_PACK, voice, currentFreq all declared together — order matters here.
-  // These use each other so they must appear AFTER all hook calls above.
+  // ── Derived values that depend on each other — declaration ORDER matters ──
+  // All must come AFTER every hook call above to avoid TDZ crashes.
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
     : getPack(selectedIcao, customPacks)
 
   const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
-  // Initialised to ATIS freq so the first tune goes from ATIS → Ground/Tower.
+  // localState: initialise to 'tuning' if the first beat requires a freq change
+  // (avoids race condition where TTS fires before the localState-update effect runs).
+  const [localState, setLocalState] = useState<LocalState>(() =>
+    FULL_PACK.beats[0]?.tune_to ? 'tuning' : 'idle'
+  )
+
+  // Initialised to a "wrong" starting freq so ATIS requires the student to tune.
   const [currentFreq, setCurrentFreq] = useState(() =>
     (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
   )
@@ -269,9 +274,7 @@ export default function HudScreen() {
           {ctx.scenarioContext?.callsign ?? '—'} · {pack.airport_icao} {mode === 'drill' ? '· DRILL' : ''}
         </Text>
         <Text className="text-dim text-xs font-mono">
-          {FULL_PACK.controlled === false
-            ? `CTAF ${FULL_PACK.ctaf_freq ?? '122.8'}`
-            : `TWR ${FULL_PACK.tower_freq}`} · {ctx.scenarioContext?.weather.wind ?? '—'}
+          {'COM1 '}{currentFreq} · {ctx.scenarioContext?.weather.wind ?? '—'}
         </Text>
       </View>
 
@@ -292,10 +295,13 @@ export default function HudScreen() {
         </Text>
       </View>
 
-      {/* Skill chip */}
+      {/* Skill chip — listen_only shows "Now Listening", others show grading */}
       {beat && (
         <View className="mx-5 mb-3 px-3 py-2 bg-surface2 rounded-xl border border-line flex-row justify-between items-center">
-          <Text className="text-muted text-xs uppercase tracking-widest">Now grading</Text>
+          {beat.listen_only
+            ? <Text className="text-muted text-xs uppercase tracking-widest">📻 Listen</Text>
+            : <Text className="text-muted text-xs uppercase tracking-widest">Now grading</Text>
+          }
           <Text className="text-accent text-xs font-semibold">{beat.skill_tag.replace(/_/g, ' ').toUpperCase()}</Text>
         </View>
       )}
@@ -305,8 +311,9 @@ export default function HudScreen() {
         <AirportDiagram pack={pack} beatId={beat?.id} />
       </View>
 
-      {/* ATC card — for readback beats */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat && beat.type !== 'pilot_initiated' && (
+      {/* ATC card — hidden while tuning/awaiting (don't spoil ATIS before student tunes) */}
+      {state.value !== 'preflight' && state.value !== 'idle' && beat && beat.type !== 'pilot_initiated'
+        && localState !== 'tuning' && localState !== 'awaiting_listen' && (
         <View className="mx-5 mb-3 bg-surface2 rounded-2xl border border-line p-4">
           <View className="flex-row justify-between items-center mb-2">
             <View className="flex-row items-center gap-2">
@@ -328,6 +335,7 @@ export default function HudScreen() {
           <Text style={{ color: '#e7ecf5' }} className="text-sm font-mono leading-relaxed">{atcLine}</Text>
         </View>
       )}
+
 
       {/* Radio tuner — shown on any beat with tune_to (ATIS, pilot-initiated, etc.) */}
       {state.value !== 'preflight' && state.value !== 'idle' && beat?.tune_to && localState === 'tuning' && (
