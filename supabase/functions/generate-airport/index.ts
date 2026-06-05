@@ -122,8 +122,9 @@ async function enhanceWithLLM(icao: string, rawName: string, apiKey: string) {
 - city: "City, ST" format
 - scenario_name: brief scenario title (e.g. "KGNV VFR Departure")
 - scenario_description: one sentence describing VFR departure with practice area
-- approach_facility: the real-world ATC approach facility name (e.g. "Jacksonville Approach", "NorCal Approach", "SoCal Approach", "Houston Approach")
-- approach_freq: the real-world approach/TRACON frequency for this airport (e.g. "124.75" for KGNV Jacksonville Approach, "121.3" for KRHV NorCal)
+- approach_facility: the real-world ATC approach facility name (e.g. "Jacksonville Approach", "NorCal Approach")
+- approach_freq: the real-world approach/TRACON frequency (e.g. "124.75" for KGNV, "121.3" for KRHV)
+- ground_freq: the ground control frequency if this airport has a separate ground controller (e.g. "121.7" for KGNV), or null if tower-only
 
 Return only valid JSON, no markdown, no extra keys.`,
         }],
@@ -148,6 +149,7 @@ Return only valid JSON, no markdown, no extra keys.`,
         : `VFR departure from ${icao} with practice area and return.`,
       approach_facility: typeof p.approach_facility === 'string' ? p.approach_facility : 'Approach',
       approach_freq: typeof p.approach_freq === 'string' ? p.approach_freq : null,
+      ground_freq: typeof p.ground_freq === 'string' ? p.ground_freq : null,
     }
   } catch {
     return null
@@ -553,14 +555,18 @@ Deno.serve(async (req: Request) => {
     estimatedMin = 15
   }
 
-  const groundFreq = airportData?.ground_freq
-  // Prefer LLM approach freq only if it passes validation; fall back to AVWX / hardcoded
+  // Ground freq: AVWX first, LLM as fallback (many airports have ground not in AVWX)
+  const avwxGround = airportData?.ground_freq
+  const llmGround = llmData?.ground_freq
+  const groundFreq = avwxGround
+    ?? (llmGround && validApproachFreq(llmGround) ? llmGround : undefined)
+
   const approachFreq = validApproachFreq(llmApproachFreq)
     ? llmApproachFreq!
     : (airportData?.approach_freq ?? '124.0')
 
   const pack = {
-    pack_schema_version: 3,
+    pack_schema_version: 4,
     airport_icao: icao,
     airport_name: airportName,
     city,

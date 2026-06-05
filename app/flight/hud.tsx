@@ -295,13 +295,18 @@ export default function HudScreen() {
         </Text>
       </View>
 
-      {/* Skill chip — listen_only shows "Now Listening", others show grading */}
-      {beat && (
+      {/* Skill chip — label reflects current operation so user always knows what to do */}
+      {beat && state.value !== 'preflight' && (
         <View className="mx-5 mb-3 px-3 py-2 bg-surface2 rounded-xl border border-line flex-row justify-between items-center">
-          {beat.listen_only
-            ? <Text className="text-muted text-xs uppercase tracking-widest">📻 Listen</Text>
-            : <Text className="text-muted text-xs uppercase tracking-widest">Now grading</Text>
-          }
+          <Text className="text-muted text-xs uppercase tracking-widest">
+            {beat.listen_only && localState === 'tuning'   ? '📻 Tune to ATIS'
+           : beat.listen_only && localState === 'awaiting_listen' ? '📻 Tap to Listen'
+           : beat.listen_only                              ? '📻 Listening…'
+           : localState === 'tuning'                       ? '📡 Tune Radio'
+           : beat.type === 'pilot_initiated'               ? '🎙 Your Call'
+           : state.value === 'atc_speaking'                ? '📣 ATC Speaking'
+           : 'Now Grading'}
+          </Text>
           <Text className="text-accent text-xs font-semibold">{beat.skill_tag.replace(/_/g, ' ').toUpperCase()}</Text>
         </View>
       )}
