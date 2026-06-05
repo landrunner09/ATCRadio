@@ -30,7 +30,7 @@ async function fetchTTSUrl(text: string, voiceName: string, languageCode: string
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500))
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 12_000)
+    const timer = setTimeout(() => controller.abort(), 30_000)
     let res: Response
     try {
       res = await fetch(ttsUrl, { method: 'POST', headers, body, signal: controller.signal })
