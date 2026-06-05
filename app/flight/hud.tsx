@@ -48,8 +48,9 @@ export default function HudScreen() {
 
   const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
-  // localState: initialise to 'tuning' if the first beat requires a freq change
-  // (avoids race condition where TTS fires before the localState-update effect runs).
+  // localState: initialise to 'tuning' if the ATIS (first) beat requires a freq change.
+  // In drill mode, the effect below immediately corrects this if the first drill beat
+  // has no tune_to (e.g. HOLD_SHORT) — the one-frame correction is imperceptible.
   const [localState, setLocalState] = useState<LocalState>(() =>
     FULL_PACK.beats[0]?.tune_to ? 'tuning' : 'idle'
   )
@@ -149,16 +150,17 @@ export default function HudScreen() {
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
   // Drive localState from machine state + beat shape.
-  // listen_only (ATIS) and any beat with tune_to enter 'tuning' first.
-  // listen_only auto-advances after TTS; pilot_initiated waits for PTT.
+  // Called on every beat/state change — always resolves to the correct state.
   useEffect(() => {
     const activeState = state.value === 'atc_speaking' || state.value === 'awaiting_response'
     if (!activeState || !beat) return
 
     if (beat.tune_to) {
-      // Any beat with a required freq change → show tuner first
+      // Beat requires frequency change → show tuner
       setLocalState('tuning')
-    } else if (state.value === 'awaiting_response') {
+    } else {
+      // No tuning required (readback, drill-started mid-scenario, etc.) → unlock immediately.
+      // This also corrects the 'tuning' initial value when drill starts on a non-tune beat.
       setLocalState('idle')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
