@@ -514,11 +514,19 @@ Deno.serve(async (req: Request) => {
   const airportName = llmData?.airport_name ?? rawName
   const city = llmData?.city ?? airportData?.city ?? ''
   const towerName = `${airportName.split(/[\s,]/)[0]} Tower`
+  // Runways come ONLY from AVWX — never trust LLM for runway data
   const runways = airportData?.runways ?? ['18', '36']
   const taxiways = airportData?.taxiways ?? ['alpha']
   const towerFreq = airportData?.tower_freq ?? ''
   const controlled = !!towerFreq
   const approachFacility = llmData?.approach_facility ?? 'Approach'
+  // Validate LLM approach_freq: must be a plausible VHF aviation frequency
+  const llmApproachFreq = llmData?.approach_freq
+  const validApproachFreq = (f: string | null | undefined): boolean => {
+    if (!f) return false
+    const n = parseFloat(f)
+    return isFinite(n) && n >= 118 && n <= 137
+  }
 
   let beats: unknown[]
   let scenarioName: string
@@ -546,7 +554,10 @@ Deno.serve(async (req: Request) => {
   }
 
   const groundFreq = airportData?.ground_freq
-  const approachFreq = llmData?.approach_freq ?? airportData?.approach_freq ?? '124.0'
+  // Prefer LLM approach freq only if it passes validation; fall back to AVWX / hardcoded
+  const approachFreq = validApproachFreq(llmApproachFreq)
+    ? llmApproachFreq!
+    : (airportData?.approach_freq ?? '124.0')
 
   const pack = {
     pack_schema_version: 3,

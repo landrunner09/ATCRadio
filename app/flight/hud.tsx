@@ -133,14 +133,16 @@ export default function HudScreen() {
   }, [])
 
   // Resolve tune_to template for the current beat (e.g. "{tower_freq}" → "119.8")
+  const pack_ground = (FULL_PACK as { ground_freq?: string }).ground_freq ?? ''
+
   const resolveTuneTo = useCallback((template: string): string => {
     return template
-      .replace(/{tower_freq}/g, FULL_PACK.tower_freq)
-      .replace(/{approach_freq}/g, FULL_PACK.approach_freq)
-      .replace(/{ground_freq}/g, (FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
-      .replace(/{atis_freq}/g, (FULL_PACK as { atis_freq?: string }).atis_freq ?? '')
+      .replace(/{tower_freq}/g, FULL_PACK.tower_freq ?? '')
+      .replace(/{approach_freq}/g, FULL_PACK.approach_freq ?? '')
+      .replace(/{ground_freq}/g, pack_ground)
+      .replace(/{atis_freq}/g, FULL_PACK.atis_freq ?? '')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq])
+  }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
   // Drive localState from machine state + beat shape.
   // listen_only (ATIS) and any beat with tune_to enter 'tuning' first.
