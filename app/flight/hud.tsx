@@ -32,11 +32,6 @@ export default function HudScreen() {
   const [localState, setLocalState] = useState<LocalState>('idle')
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
-  // Track which frequency the student currently has dialled in.
-  // Initialised to ATIS freq so the first tune goes from ATIS → Ground/Tower.
-  const [currentFreq, setCurrentFreq] = useState(() =>
-    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
-  )
 
   const { startRun, endRun, addAttempt, selectedAccent, tailNumber, setSessionNewBadges } = useFlightStore()
   const { mode, selectedBeatIds } = useDrillStore()
@@ -52,6 +47,13 @@ export default function HudScreen() {
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
     : getPack(selectedIcao, customPacks)
+
+  // Track which frequency the student currently has dialled in.
+  // Initialised to ATIS freq so the first tune goes from ATIS → Ground/Tower.
+  // MUST be declared after FULL_PACK to avoid TDZ (const used before declaration).
+  const [currentFreq, setCurrentFreq] = useState(() =>
+    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
+  )
   const pack = mode === 'drill'
     ? { ...FULL_PACK, beats: FULL_PACK.beats.filter(b => selectedBeatIds.includes(b.id)) }
     : FULL_PACK
