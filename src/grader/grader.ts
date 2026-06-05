@@ -148,6 +148,11 @@ export function gradeResponse(
   confidence: number,
   pack: ContentPack,
 ): GradeResult {
+  // listen_only beats (ATIS) auto-pass — student absorbs, no grading needed
+  if (beat.listen_only || rawTranscript === '__listen_only__') {
+    return { passed: true, missingCritical: [], missingStandard: [], slotMatches: [], confidence: 1, rawTranscript, normalizedTranscript: '' }
+  }
+
   const normalizedTranscript = normalizePhonetic(rawTranscript)
   const slots = beat.expected_student_response.required_slots
 

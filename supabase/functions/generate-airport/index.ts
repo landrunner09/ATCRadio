@@ -75,10 +75,9 @@ async function fetchAirportData(icao: string) {
     const find = (keywords: string[]) =>
       freqs.find(f => keywords.some(k => f.type.includes(k)))
 
-    const tower = find(['lcl', 'twr', 'tower', 'ct-'])
-    const atis  = find(['atis', 'asos', 'awos'])
-    // Note: approach/departure control (TRACON) is regional, not in airport freqs.
-    // Class D airports have no separate ground — Tower handles ground on tower freq.
+    const tower  = find(['lcl', 'twr', 'tower', 'ct-'])
+    const ground = find(['gnd', 'ground', 'gcd', 'grnd'])
+    const atis   = find(['atis', 'asos', 'awos'])
 
     // Extract both ends of each runway (exclude helipads starting with H)
     const runways = (ap.runways ?? [])
@@ -98,7 +97,8 @@ async function fetchAirportData(icao: string) {
       runways: runways.length > 0 ? runways : ['31', '13'],
       taxiways: ['alpha', 'bravo'],
       tower_freq: tower ? tower.freqStr : '',  // empty string = uncontrolled
-      approach_freq: '124.0', // TRACON not in airport data; keep fallback
+      ground_freq: ground ? ground.freqStr : undefined,
+      approach_freq: '124.0', // TRACON is regional; LLM will refine this
       atis_freq: atis ? atis.freqStr : '120.6',
     }
   } catch {
@@ -123,6 +123,7 @@ async function enhanceWithLLM(icao: string, rawName: string, apiKey: string) {
 - scenario_name: brief scenario title (e.g. "KGNV VFR Departure")
 - scenario_description: one sentence describing VFR departure with practice area
 - approach_facility: the real-world ATC approach facility name (e.g. "Jacksonville Approach", "NorCal Approach", "SoCal Approach", "Houston Approach")
+- approach_freq: the real-world approach/TRACON frequency for this airport (e.g. "124.75" for KGNV Jacksonville Approach, "121.3" for KRHV NorCal)
 
 Return only valid JSON, no markdown, no extra keys.`,
         }],
@@ -146,6 +147,7 @@ Return only valid JSON, no markdown, no extra keys.`,
         ? p.scenario_description
         : `VFR departure from ${icao} with practice area and return.`,
       approach_facility: typeof p.approach_facility === 'string' ? p.approach_facility : 'Approach',
+      approach_freq: typeof p.approach_freq === 'string' ? p.approach_freq : null,
     }
   } catch {
     return null
@@ -198,12 +200,19 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
   })
 
   return [
-    // 1. ATIS — listen and confirm extraction
-    rb('atis.listen', 'ATIS', 'atis_extraction', 'atis', `${prefix}_atis`,
-      `${airportName} Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.`,
-      [`${airportName} information {atis_letter}. Wind {weather.wind}. Altimeter {weather.altimeter}. Active runway {runway}. Advise Tower on initial contact you have information {atis_letter}.`],
-      [crit('atis_letter', '{atis_letter}'), std('runway', '{runway}'), std('altimeter', '{weather.altimeter}')],
-      'taxi.call'),
+    // 1. ATIS — listen only (no grading; student absorbs and uses info in subsequent calls)
+    {
+      id: `${prefix}.atis.listen`, phase: 'ATIS', skill_tag: 'atis_extraction',
+      speaker: 'atis', voice_role: `${prefix}_atis`,
+      listen_only: true, tune_to: '{atis_freq}', tune_label: 'ATIS',
+      line_template: `${airportName} Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.`,
+      line_variants: [`${airportName} information {atis_letter}. Wind {weather.wind}. Altimeter {weather.altimeter}. Active runway {runway}. Advise Tower on initial contact you have information {atis_letter}.`],
+      expected_student_response: { type: 'readback', required_slots: [], phraseology_hints: [] },
+      on_pass: { next: next('taxi.call') },
+      on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: false, max_retries: 0 },
+      on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: next('taxi.call') },
+      on_say_again: { replay_audio: true },
+    },
 
     // 2. PILOT calls Tower — initial taxi request
     pi('taxi.call', 'INITIAL_CALL', 'initial_call',
@@ -536,13 +545,17 @@ Deno.serve(async (req: Request) => {
     estimatedMin = 15
   }
 
+  const groundFreq = airportData?.ground_freq
+  const approachFreq = llmData?.approach_freq ?? airportData?.approach_freq ?? '124.0'
+
   const pack = {
-    pack_schema_version: 2,
+    pack_schema_version: 3,
     airport_icao: icao,
     airport_name: airportName,
     city,
-    tower_freq: towerFreq, // empty string for uncontrolled airports
-    approach_freq: airportData?.approach_freq ?? '124.0',
+    tower_freq: towerFreq,
+    ground_freq: groundFreq,
+    approach_freq: approachFreq,
     atis_freq: airportData?.atis_freq ?? '120.6',
     approach_facility: approachFacility,
     ctaf_freq: controlled ? undefined : (airportData?.atis_freq || '122.8'),

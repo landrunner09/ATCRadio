@@ -33,6 +33,11 @@ export interface Beat {
   /** Shown as a cue card in the HUD when type === 'pilot_initiated' */
   cue_text?: string
   /**
+   * When true, the beat plays audio (TTS) for the student to absorb but requires
+   * NO spoken response — it auto-advances after playback. Used for ATIS broadcasts.
+   */
+  listen_only?: boolean
+  /**
    * Frequency template the student must dial in before transmitting, e.g. "{tower_freq}".
    * Only valid on pilot_initiated beats. Resolved against pack + scenarioContext at runtime.
    */

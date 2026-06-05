@@ -29,32 +29,17 @@
       "skill_tag": "atis_extraction",
       "speaker": "atis",
       "voice_role": "krhv_atis",
+      "listen_only": true,
+      "tune_to": "{atis_freq}",
+      "tune_label": "ATIS",
       "line_template": "Reid-Hillview Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.",
       "line_variants": [
         "Reid-Hillview information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}. Altimeter {weather.altimeter}. Active runway {runway}. Inform Tower on initial contact you have information {atis_letter}."
       ],
       "expected_student_response": {
         "type": "readback",
-        "required_slots": [
-          {
-            "slot": "atis_letter",
-            "value": "{atis_letter}",
-            "criticality": "critical"
-          },
-          {
-            "slot": "runway",
-            "value": "{runway}",
-            "criticality": "standard"
-          },
-          {
-            "slot": "altimeter",
-            "value": "{weather.altimeter}",
-            "criticality": "standard"
-          }
-        ],
-        "phraseology_hints": [
-          "Confirm the ATIS letter, active runway, and altimeter you just heard"
-        ]
+        "required_slots": [],
+        "phraseology_hints": []
       },
       "on_pass": {
         "next": "krhv.taxi.call"
@@ -790,5 +775,5 @@
       }
     }
   ],
-  "pack_schema_version": 2
+  "pack_schema_version": 3
 }

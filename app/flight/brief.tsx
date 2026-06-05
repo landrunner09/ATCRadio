@@ -74,6 +74,7 @@ export default function BriefScreen() {
             { l: 'Runways', v: pack.runways?.join(' / ') ?? '31' },
             ...(pack.controlled !== false ? [
               { l: 'ATIS', v: pack.atis_freq },
+              ...((pack as { ground_freq?: string }).ground_freq ? [{ l: 'Ground', v: (pack as { ground_freq?: string }).ground_freq! }] : []),
               { l: 'Tower', v: pack.tower_freq },
               { l: 'Approach', v: pack.approach_freq },
             ] : [

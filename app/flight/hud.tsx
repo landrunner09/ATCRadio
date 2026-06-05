@@ -19,7 +19,7 @@ import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
 
-type LocalState = 'idle' | 'tuning' | 'recording' | 'processing'
+type LocalState = 'idle' | 'tuning' | 'awaiting_listen' | 'recording' | 'processing'
 
 export default function HudScreen() {
   const router = useRouter()
@@ -142,12 +142,17 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq])
 
-  // When machine reaches awaiting_response on a pilot_initiated+tune_to beat, enter tuning state
+  // Drive localState from machine state + beat shape.
+  // listen_only (ATIS) and any beat with tune_to enter 'tuning' first.
+  // listen_only auto-advances after TTS; pilot_initiated waits for PTT.
   useEffect(() => {
-    if (state.value !== 'awaiting_response') return
-    if (beat?.type === 'pilot_initiated' && beat.tune_to) {
+    const activeState = state.value === 'atc_speaking' || state.value === 'awaiting_response'
+    if (!activeState || !beat) return
+
+    if (beat.tune_to) {
+      // Any beat with a required freq change → show tuner first
       setLocalState('tuning')
-    } else {
+    } else if (state.value === 'awaiting_response') {
       setLocalState('idle')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,14 +165,24 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.value, nextAtcLine])
 
-  // When machine enters atc_speaking, play TTS
+  // listen_only beats (ATIS): auto-advance after student manually triggers playback
+  // Machine enters awaiting_response → we immediately advance (no grading needed)
+  useEffect(() => {
+    if (state.value !== 'awaiting_response' || !beat?.listen_only) return
+    send({ type: 'RESPOND', transcript: '__listen_only__', confidence: 1 })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.value, ctx.beatIndex])
+
+  // When machine enters atc_speaking, play TTS.
+  // For beats with tune_to, playback is gated: tuning → awaiting_listen → idle → play.
   useEffect(() => {
     if (state.value !== 'atc_speaking') return
-    // pilot_initiated beats have no ATC audio — skip straight to awaiting_response
     if (beat?.type === 'pilot_initiated') {
       send({ type: 'ATC_DONE' })
       return
     }
+    // Gate behind tuner and manual "tap to listen" if required
+    if (localState === 'tuning' || localState === 'awaiting_listen') return
     setTtsError(null)
     playTTS().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -175,9 +190,8 @@ export default function HudScreen() {
       setTtsError(msg)
       send({ type: 'ATC_DONE' })
     })
-    // Re-fires whenever beat changes (atcLine changes with beatIndex)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, atcLine])
+  }, [state.value, atcLine, localState])
 
   // Start radio static during student response window; stop when ATC speaks or recording
   useEffect(() => {
@@ -314,21 +328,40 @@ export default function HudScreen() {
         </View>
       )}
 
-      {/* Radio tuner — shown before cue card when beat requires a freq change */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && beat.tune_to && localState === 'tuning' && (
+      {/* Radio tuner — shown on any beat with tune_to (ATIS, pilot-initiated, etc.) */}
+      {state.value !== 'preflight' && state.value !== 'idle' && beat?.tune_to && localState === 'tuning' && (
         <RadioTuner
           targetFreq={resolveTuneTo(beat.tune_to)}
           targetLabel={beat.tune_label ?? ''}
           startFreq={currentFreq}
           onConfirmed={(freq) => {
             setCurrentFreq(freq)
-            setLocalState('idle')
+            if (beat.listen_only) {
+              // ATIS: after tuning, show "Tap to Listen" before audio plays
+              setLocalState('awaiting_listen')
+            } else {
+              // pilot_initiated: unlock PTT
+              setLocalState('idle')
+            }
           }}
         />
       )}
 
+      {/* TAP TO LISTEN — ATIS only: student triggers ATIS broadcast manually */}
+      {state.value !== 'preflight' && state.value !== 'idle' && beat?.listen_only && localState === 'awaiting_listen' && (
+        <TouchableOpacity
+          className="mx-5 mb-3 rounded-2xl py-5 items-center"
+          style={{ backgroundColor: 'rgba(111,227,255,0.08)', borderWidth: 1.5, borderColor: '#6FE3FF' }}
+          onPress={() => setLocalState('idle')}
+        >
+          <Text style={{ color: '#6FE3FF', fontSize: 22, marginBottom: 6 }}>📻</Text>
+          <Text style={{ color: '#6FE3FF' }} className="font-bold text-base tracking-wide">TAP TO LISTEN TO ATIS</Text>
+          <Text className="text-dim text-xs mt-1">Listen carefully — note the ATIS letter, runway and altimeter</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Cue card — for pilot_initiated beats (shown after tuning complete) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && localState !== 'tuning' && (
+      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && localState !== 'tuning' && localState !== 'awaiting_listen' && (
         <View
           className="mx-5 mb-3 rounded-2xl p-4"
           style={{
