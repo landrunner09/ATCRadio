@@ -10,7 +10,7 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
 // ─── URL cache ────────────────────────────────────────────────────────────────
 // Two-tier: module-level Map (instant) + AsyncStorage (survives restarts, 30-day TTL)
 
-const STORAGE_KEY = 'atcradio_tts_url_cache_v5'
+const STORAGE_KEY = 'atcradio_tts_url_cache_v6'
 const TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 const urlCache = new Map<string, string>()
@@ -52,19 +52,21 @@ function normalizeText(text: string): string {
   return text.trim().replace(/\s+/g, ' ')
 }
 
-function cacheKey(text: string, voiceName: string): string {
-  return `${voiceName}:${normalizeText(text)}`
+function cacheKey(text: string, voiceName: string, instructions: string): string {
+  // Simple hash of instructions to keep key short
+  const instKey = instructions.slice(0, 40).replace(/\s+/g, '_')
+  return `${voiceName}:${instKey}:${normalizeText(text)}`
 }
 
 // ─── TTS fetch ────────────────────────────────────────────────────────────────
-async function fetchTTSUrl(text: string, voiceName: string, languageCode: string): Promise<string> {
+async function fetchTTSUrl(text: string, voiceName: string, instructions: string): Promise<string> {
   await ensureCacheLoaded()
-  const key = cacheKey(text, voiceName)
+  const key = cacheKey(text, voiceName, instructions)
   const cached = urlCache.get(key)
   if (cached) return cached
 
   const ttsUrl = `${SUPABASE_URL}/functions/v1/tts`
-  const body = JSON.stringify({ text: normalizeText(text), voiceName, languageCode })
+  const body = JSON.stringify({ text: normalizeText(text), voiceName, instructions })
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
@@ -100,12 +102,12 @@ async function fetchTTSUrl(text: string, voiceName: string, languageCode: string
 // ─── Batch prefetch ───────────────────────────────────────────────────────────
 // Fire all requests concurrently. Failures are silently ignored (best-effort warm).
 export async function prefetchTTSBatch(
-  beats: Array<{ text: string; voiceName: string; languageCode: string }>
+  beats: Array<{ text: string; voiceName: string; instructions: string }>
 ): Promise<void> {
   await Promise.allSettled(
     beats
       .filter(b => b.text.trim())
-      .map(b => fetchTTSUrl(b.text, b.voiceName, b.languageCode))
+      .map(b => fetchTTSUrl(b.text, b.voiceName, b.instructions))
   )
 }
 
@@ -114,7 +116,7 @@ export async function prefetchTTSBatch(
 interface TTSPlayerOptions {
   text: string
   voiceName: string
-  languageCode: string
+  instructions: string
   onEnd: () => void
 }
 
@@ -124,7 +126,7 @@ interface TTSPlayerResult {
   prefetch: () => Promise<void>
 }
 
-export function useTTSPlayer({ text, voiceName, languageCode, onEnd }: TTSPlayerOptions): TTSPlayerResult {
+export function useTTSPlayer({ text, voiceName, instructions, onEnd }: TTSPlayerOptions): TTSPlayerResult {
   const soundRef = useRef<Audio.Sound | null>(null)
   const stopWebRef = useRef<(() => void) | null>(null)
   const mountedRef = useRef(true)
@@ -169,18 +171,18 @@ export function useTTSPlayer({ text, voiceName, languageCode, onEnd }: TTSPlayer
   }, [])
 
   const play = useCallback(async () => {
-    const url = await fetchTTSUrl(text, voiceName, languageCode)
+    const url = await fetchTTSUrl(text, voiceName, instructions)
     await playUrl(url)
-  }, [text, voiceName, languageCode, playUrl])
+  }, [text, voiceName, instructions, playUrl])
 
   const replay = useCallback(async () => {
-    const url = await fetchTTSUrl(text, voiceName, languageCode)
+    const url = await fetchTTSUrl(text, voiceName, instructions)
     await playUrl(url)
-  }, [text, voiceName, languageCode, playUrl])
+  }, [text, voiceName, instructions, playUrl])
 
   const prefetch = useCallback(async () => {
-    try { await fetchTTSUrl(text, voiceName, languageCode) } catch {}
-  }, [text, voiceName, languageCode])
+    try { await fetchTTSUrl(text, voiceName, instructions) } catch {}
+  }, [text, voiceName, instructions])
 
   return { play, replay, prefetch }
 }

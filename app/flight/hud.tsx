@@ -12,7 +12,7 @@ import { useAirportStore } from '@/store/airportStore'
 import { getPack } from '@/engine/packRegistry'
 import { useTTSPlayer, prefetchTTSBatch } from '@/audio/useTTSPlayer'
 import { useASRRecorder } from '@/audio/useASRRecorder'
-import { VOICES, DEFAULT_ACCENT } from '@/audio/audioConstants'
+import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
 import { RadioTuner } from '@/components/RadioTuner'
 import { useBadges } from '@/hooks/useBadges'
@@ -33,7 +33,7 @@ export default function HudScreen() {
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
 
-  const { startRun, endRun, addAttempt, selectedAccent, tailNumber, setSessionNewBadges } = useFlightStore()
+  const { startRun, endRun, addAttempt, tailNumber, setSessionNewBadges } = useFlightStore()
   const { mode, selectedBeatIds } = useDrillStore()
   const { user } = useAuthStore()
   const { selectedIcao, customPacks, arrivalPacks, selectedScenarioType } = useAirportStore()
@@ -41,8 +41,7 @@ export default function HudScreen() {
   const { streak } = useStats(user?.id ?? null)
   const { checkAndAward } = useBadges(user?.id ?? null)
 
-  const accent = selectedAccent ?? DEFAULT_ACCENT
-  const voice = VOICES[accent] ?? VOICES[DEFAULT_ACCENT]
+  const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
@@ -80,7 +79,7 @@ export default function HudScreen() {
   const { play: playTTS, replay: replayTTS, prefetch: prefetchTTS } = useTTSPlayer({
     text: atcLine,
     voiceName: voice.name,
-    languageCode: voice.languageCode,
+    instructions: voice.instructions,
     onEnd: useCallback(() => {
       send({ type: 'ATC_DONE' })
     }, [send]),
@@ -90,7 +89,7 @@ export default function HudScreen() {
   const { prefetch: prefetchNextTTS } = useTTSPlayer({
     text: nextAtcLine,
     voiceName: voice.name,
-    languageCode: voice.languageCode,
+    instructions: voice.instructions,
     onEnd: useCallback(() => {}, []),
   })
 
@@ -107,7 +106,7 @@ export default function HudScreen() {
       .map(b => ({
         text: pickLine(b, pack, scenarioContext),
         voiceName: voice.name,
-        languageCode: voice.languageCode,
+        instructions: voice.instructions,
       }))
       .filter(b => b.text.trim())
     prefetchTTSBatch(beats)

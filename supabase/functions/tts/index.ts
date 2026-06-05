@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: CORS })
   }
 
-  const { text: rawText, voiceName } = await req.json()
+  const { text: rawText, voiceName, instructions } = await req.json()
   if (!rawText || !voiceName) {
     return json({ error: 'Missing required fields' }, 400)
   }
@@ -95,8 +95,9 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // v5: OpenAI backend — cache key includes voice and expanded text
-  const cacheKey = await sha256hex(`v5:${voiceName}:${text}`)
+  // v6: OpenAI gpt-4o-mini-tts with per-region controller persona instructions
+  const instructionHash = instructions ? await sha256hex(instructions) : 'default'
+  const cacheKey = await sha256hex(`v6:${voiceName}:${instructionHash}:${text}`)
   const filename = `${cacheKey}.mp3`
 
   // Check storage cache first
@@ -108,17 +109,20 @@ Deno.serve(async (req) => {
 
   // Cache miss — call OpenAI TTS
   const apiKey = Deno.env.get('OPENAI_API_KEY')
+  const ttsBody: Record<string, unknown> = {
+    model: 'gpt-4o-mini-tts',
+    voice: voiceName,
+    input: text,
+  }
+  if (instructions) ttsBody.instructions = instructions
+
   const ttsRes = await fetch(OPENAI_TTS_URL, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'tts-1',
-      voice: voiceName,
-      input: text,
-    }),
+    body: JSON.stringify(ttsBody),
   })
 
   if (!ttsRes.ok) {

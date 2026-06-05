@@ -5,18 +5,11 @@ import { useFlightStore } from '@/store/flightStore'
 import { useAuthStore } from '@/store/authStore'
 import { useAirportStore } from '@/store/airportStore'
 import { getPack } from '@/engine/packRegistry'
-import { supabase } from '@/lib/supabase'
-
-const ACCENTS = [
-  { label: '🇺🇸 American', id: 'american' },
-  { label: '🇬🇧 British', id: 'british' },
-  { label: '🇮🇳 Indian', id: 'indian' },
-  { label: '🇦🇺 Australian', id: 'australian' },
-]
+import { getVoiceForAirport } from '@/audio/audioConstants'
 
 export default function BriefScreen() {
   const router = useRouter()
-  const { selectedAccent, setSelectedAccent, tailNumber, setTailNumber } = useFlightStore()
+  const { tailNumber, setTailNumber } = useFlightStore()
   const { user } = useAuthStore()
   const { selectedIcao, customPacks, arrivalPacks, selectedScenarioType } = useAirportStore()
 
@@ -25,22 +18,12 @@ export default function BriefScreen() {
     : getPack(selectedIcao, customPacks)
   const uniqueSkills = [...new Set(pack.beats.map(b => b.skill_tag))]
 
-  useEffect(() => {
-    const accent = user?.user_metadata?.accent_preference as string | undefined
-    if (accent) setSelectedAccent(accent)
-  }, [user])
+  const voice = getVoiceForAirport(pack.airport_icao)
 
   useEffect(() => {
     const tail = user?.user_metadata?.tail_number as string | undefined
     if (tail) setTailNumber(tail)
   }, [user])
-
-  async function handleAccentChange(key: string) {
-    setSelectedAccent(key)
-    if (user?.id) {
-      await supabase.auth.updateUser({ data: { accent_preference: key } })
-    }
-  }
 
   return (
     <ScrollView className="flex-1 bg-bg" contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}>
@@ -71,7 +54,7 @@ export default function BriefScreen() {
         <View className="flex-row flex-wrap gap-2">
           {[
             { l: 'Aircraft', v: `C172 · ${tailNumber}`, tap: () => router.push('/(tabs)/settings') },
-            { l: 'Runways', v: pack.runways?.join(' / ') ?? '31' },
+            { l: 'Runways', v: pack.runways?.join(' / ') ?? '—' },
             ...(pack.controlled !== false ? [
               { l: 'ATIS', v: pack.atis_freq },
               ...((pack as { ground_freq?: string }).ground_freq ? [{ l: 'Ground', v: (pack as { ground_freq?: string }).ground_freq! }] : []),
@@ -93,27 +76,12 @@ export default function BriefScreen() {
         </View>
       </View>
 
-      {/* Accent picker */}
+      {/* Controller info — auto-determined from airport */}
       <View className="bg-surface2 rounded-2xl border border-line p-4 mb-4">
-        <Text className="text-muted text-xs uppercase tracking-widest mb-3">Controller Accent</Text>
-        <View className="flex-row flex-wrap gap-2">
-          {ACCENTS.map(a => (
-            <TouchableOpacity
-              key={a.id}
-              className="px-4 py-2 rounded-full"
-              style={selectedAccent === a.id
-                ? { borderWidth: 1, borderColor: '#6FE3FF', backgroundColor: 'rgba(111,227,255,0.1)' }
-                : { borderWidth: 1, borderColor: '#1C2548' }
-              }
-              onPress={() => handleAccentChange(a.id)}
-            >
-              <Text
-                className="text-sm"
-                style={{ color: selectedAccent === a.id ? '#6FE3FF' : '#8A9BC4', fontWeight: selectedAccent === a.id ? '600' : '400' }}
-              >{a.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <Text className="text-muted text-xs uppercase tracking-widest mb-2">Controller</Text>
+        <Text style={{ color: '#e7ecf5' }} className="text-sm">
+          {voice.instructions.split('.')[0].replace('You are a professional ', '')}
+        </Text>
       </View>
 
       {/* You'll practice */}
