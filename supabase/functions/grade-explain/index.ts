@@ -2,7 +2,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-const ASSEMBLYAI_LLM = 'https://llm-gateway.assemblyai.com/v1/chat/completions'
+const OPENAI_CHAT = 'https://api.openai.com/v1/chat/completions'
 const FETCH_TIMEOUT_MS = 15_000
 
 const CORS = {
@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Missing required fields: skillTag, result' }, 400)
   }
 
-  const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY')
+  const apiKey = Deno.env.get('OPENAI_API_KEY')
   if (!apiKey) return json({ error: 'LLM service not configured' }, 503)
 
   const userContent = [
@@ -84,16 +84,17 @@ Deno.serve(async (req: Request) => {
 
   let llmRes: Response
   try {
-    llmRes = await fetchWithTimeout(ASSEMBLYAI_LLM, {
+    llmRes = await fetchWithTimeout(OPENAI_CHAT, {
       method: 'POST',
-      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userContent },
         ],
         max_tokens: 250,
+        response_format: { type: 'json_object' },
       }),
     }, FETCH_TIMEOUT_MS)
   } catch (e) {
