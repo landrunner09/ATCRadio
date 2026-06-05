@@ -537,6 +537,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const pack = {
+    pack_schema_version: 2,
     airport_icao: icao,
     airport_name: airportName,
     city,

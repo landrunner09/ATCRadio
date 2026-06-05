@@ -73,8 +73,27 @@ export const useAirportStore = create<AirportStore>((set, get) => ({
         AsyncStorage.getItem(SELECTED_KEY),
         AsyncStorage.getItem(ARRIVAL_KEY),
       ])
-      const customPacks: Record<string, ContentPack> = packsRaw ? JSON.parse(packsRaw) : {}
-      const arrivalPacks: Record<string, ContentPack> = arrivalRaw ? JSON.parse(arrivalRaw) : {}
+
+      const CURRENT_SCHEMA = 2
+
+      // Filter out packs generated with an older schema — they'll be regenerated on demand
+      const purgeStale = (raw: Record<string, ContentPack>) =>
+        Object.fromEntries(
+          Object.entries(raw).filter(([, p]) => (p.pack_schema_version ?? 0) >= CURRENT_SCHEMA)
+        )
+
+      const rawCustom: Record<string, ContentPack> = packsRaw ? JSON.parse(packsRaw) : {}
+      const rawArrival: Record<string, ContentPack> = arrivalRaw ? JSON.parse(arrivalRaw) : {}
+
+      const customPacks = purgeStale(rawCustom)
+      const arrivalPacks = purgeStale(rawArrival)
+
+      // Persist purged versions so stale packs don't re-appear on next restart
+      if (Object.keys(customPacks).length !== Object.keys(rawCustom).length)
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(customPacks)).catch(() => {})
+      if (Object.keys(arrivalPacks).length !== Object.keys(rawArrival).length)
+        AsyncStorage.setItem(ARRIVAL_KEY, JSON.stringify(arrivalPacks)).catch(() => {})
+
       const selectedIcao = selectedRaw ?? 'KPAO'
       set({ customPacks, arrivalPacks, selectedIcao, isHydrated: true })
     } catch {

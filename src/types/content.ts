@@ -80,6 +80,12 @@ export interface ContentPack {
   tower_freq: string
   approach_freq: string
   atis_freq: string
+  /**
+   * Schema version for cache invalidation. Increment when the beat structure changes
+   * incompatibly so stale AsyncStorage packs are automatically discarded.
+   * Current: 2 (15-beat pilot-initiated flow + tune_to support)
+   */
+  pack_schema_version?: number
   /** Approach facility name, e.g. "NorCal Approach", "SoCal Approach". Used in {approach_facility} templates. */
   approach_facility?: string
   /** Ground control frequency. Present only at airports with a separate ground controller. */

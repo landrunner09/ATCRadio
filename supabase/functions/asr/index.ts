@@ -16,7 +16,14 @@ async function poll(id: string, apiKey: string, maxAttempts = 60): Promise<{ tra
       }
     }
     if (data.status === 'error') {
-      throw new Error(data.error ?? 'AssemblyAI transcription failed')
+      const msg: string = data.error ?? 'AssemblyAI transcription failed'
+      // "No spoken audio" / silence — treat as empty transcript, not an error
+      if (msg.toLowerCase().includes('no spoken audio') ||
+          msg.toLowerCase().includes('language_detection') ||
+          msg.toLowerCase().includes('silent')) {
+        return { transcript: '', confidence: 0 }
+      }
+      throw new Error(msg)
     }
     await new Promise((r) => setTimeout(r, 500))
   }
