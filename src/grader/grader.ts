@@ -17,9 +17,9 @@ function resolveSlotValue(value: string, ctx: ScenarioContext, pack: ContentPack
 
 /**
  * All surface forms a runway designator can take in a transcript.
- * "25r" → ["25r", "25 right", "25 r", "25"]
- * "31l" → ["31l", "31 left", "31 l", "31"]
- * "12"  → ["12"]  (no suffix, return as-is)
+ * "25r" → ["25r", "25 right", "25 r"]   — NOT bare "25" (ambiguous with parallel runways)
+ * "31l" → ["31l", "31 left", "31 l"]
+ * "12"  → ["12"]  (no suffix, no expansion needed)
  */
 function runwayForms(normRunway: string): string[] {
   const forms: string[] = [normRunway]
@@ -27,7 +27,8 @@ function runwayForms(normRunway: string): string[] {
   if (m) {
     const [, num, dir] = m
     const word = { l: 'left', r: 'right', c: 'center' }[dir as 'l' | 'r' | 'c']
-    forms.push(`${num} ${word}`, `${num} ${dir}`, num) // "31 left", "31 l", "31"
+    forms.push(`${num} ${word}`, `${num} ${dir}`) // "31 left", "31 l"
+    // bare "31" intentionally excluded — 31L ≠ 31 at parallel-runway airports
   }
   return forms
 }
@@ -61,9 +62,13 @@ function slotPresentInTranscript(
     }
 
     case 'runway': {
-      // Runway number must appear; directional suffix (L/R/C) is optional.
-      // Accepts: "runway 25R", "runway 25 right", "runway 25", "two five right"
-      return runwayForms(v).some(f => t.includes(f))
+      // "runway" keyword must appear, followed by the designator in any directional form.
+      // Accepts: "runway 31L", "runway 31 left", "runway 31 l"
+      // Rejects: bare "31" without "runway" keyword, and "31" when runway is "31L"
+      const rwIdx = t.indexOf('runway')
+      if (rwIdx === -1) return false
+      const afterRunway = t.slice(rwIdx)
+      return runwayForms(v).some(f => afterRunway.includes(f))
     }
 
     case 'via': {

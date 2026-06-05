@@ -15,18 +15,25 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 const urlCache = new Map<string, string>()
 
-// Load persisted cache on module init (non-blocking)
-;(async () => {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    const data = JSON.parse(raw) as Record<string, { url: string; ts: number }>
-    const now = Date.now()
-    for (const [k, { url, ts }] of Object.entries(data)) {
-      if (now - ts < TTL_MS) urlCache.set(k, url)
-    }
-  } catch {}
-})()
+// Lazy cache load — deferred until first TTS fetch to avoid module-init TDZ issues
+// on web where AsyncStorage may not be fully initialised when the bundle first runs.
+let cacheLoadPromise: Promise<void> | null = null
+
+function ensureCacheLoaded(): Promise<void> {
+  if (cacheLoadPromise) return cacheLoadPromise
+  cacheLoadPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const data = JSON.parse(raw) as Record<string, { url: string; ts: number }>
+      const now = Date.now()
+      for (const [k, { url, ts }] of Object.entries(data)) {
+        if (now - ts < TTL_MS) urlCache.set(k, url)
+      }
+    } catch {}
+  })()
+  return cacheLoadPromise
+}
 
 async function persistCache() {
   try {
@@ -51,6 +58,7 @@ function cacheKey(text: string, voiceName: string): string {
 
 // ─── TTS fetch ────────────────────────────────────────────────────────────────
 async function fetchTTSUrl(text: string, voiceName: string, languageCode: string): Promise<string> {
+  await ensureCacheLoaded()
   const key = cacheKey(text, voiceName)
   const cached = urlCache.get(key)
   if (cached) return cached
