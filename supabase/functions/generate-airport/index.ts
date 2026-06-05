@@ -6,7 +6,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 const AVWX_URL = 'https://aviationweather.gov/api/data/airport'
-const LLM_URL = 'https://llm-gateway.assemblyai.com/v1/chat/completions'
+const LLM_URL = 'https://api.openai.com/v1/chat/completions'
 const FETCH_TIMEOUT_MS = 12_000
 
 function cors(body: unknown, status = 200) {
@@ -110,17 +110,19 @@ async function enhanceWithLLM(icao: string, rawName: string, apiKey: string) {
   try {
     const res = await fetchWithTimeout(LLM_URL, {
       method: 'POST',
-      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'gpt-4o-mini',
         max_tokens: 300,
+        response_format: { type: 'json_object' },
         messages: [{
           role: 'user',
           content: `For airport ${icao} (raw database name: "${rawName}"), return JSON with exactly these keys:
-- airport_name: friendly short name (e.g. "San Francisco International")
+- airport_name: friendly short name (e.g. "Gainesville Regional", "San Carlos")
 - city: "City, ST" format
-- scenario_name: brief scenario title (e.g. "KSFO Full Pattern Flight")
-- scenario_description: one sentence describing VFR pattern flight
+- scenario_name: brief scenario title (e.g. "KGNV VFR Departure")
+- scenario_description: one sentence describing VFR departure with practice area
+- approach_facility: the real-world ATC approach facility name (e.g. "Jacksonville Approach", "NorCal Approach", "SoCal Approach", "Houston Approach")
 
 Return only valid JSON, no markdown, no extra keys.`,
         }],
@@ -139,10 +141,11 @@ Return only valid JSON, no markdown, no extra keys.`,
     return {
       airport_name: typeof p.airport_name === 'string' ? p.airport_name : rawName,
       city: typeof p.city === 'string' ? p.city : '',
-      scenario_name: typeof p.scenario_name === 'string' ? p.scenario_name : `${icao} Full Pattern Flight`,
+      scenario_name: typeof p.scenario_name === 'string' ? p.scenario_name : `${icao} VFR Departure`,
       scenario_description: typeof p.scenario_description === 'string'
         ? p.scenario_description
-        : `Full VFR pattern flight at ${icao}.`,
+        : `VFR departure from ${icao} with practice area and return.`,
+      approach_facility: typeof p.approach_facility === 'string' ? p.approach_facility : 'Approach',
     }
   } catch {
     return null
@@ -153,102 +156,150 @@ Return only valid JSON, no markdown, no extra keys.`,
 const std = (slot: string, value: string) => ({ slot, value, criticality: 'standard' })
 const crit = (slot: string, value: string) => ({ slot, value, criticality: 'critical' })
 
-function buildBeats(prefix: string, airportName: string, towerName: string) {
-  const b = (id: string, phase: string, skill: string, speaker: string, voiceRole: string,
-    tmpl: string, variants: string[], slots: { slot: string; value: string; criticality: string }[],
-    nextId: string, missingCritical: string[] = []) => ({
-    id: `${prefix}.${id}`,
-    phase,
-    skill_tag: skill,
-    speaker,
-    voice_role: voiceRole,
-    line_template: tmpl,
-    line_variants: variants,
-    expected_student_response: {
-      type: 'readback',
-      required_slots: slots,
-      phraseology_hints: [],
-    },
-    on_pass: { next: nextId === '__debrief__' ? '__debrief__' : `${prefix}.${nextId}` },
-    on_partial: {
-      missing_critical: missingCritical,
-      controller_correction: '{callsign}, say again.',
-      retry_same_beat: true,
-      max_retries: 2,
-    },
-    on_fail_after_retries: {
-      scaffold_mode: true,
-      next_after_scaffold_pass: nextId === '__debrief__' ? '__debrief__' : `${prefix}.${nextId}`,
-    },
+function buildBeats(prefix: string, airportName: string, towerName: string, approachFacility: string) {
+  const twr = `${prefix}_tower`
+  const apc = `${prefix}_approach`
+  const next = (id: string) => id === '__debrief__' ? '__debrief__' : `${prefix}.${id}`
+
+  // Readback beat — ATC speaks, student reads back
+  const rb = (
+    id: string, phase: string, skill: string, speaker: string, voiceRole: string,
+    tmpl: string, variants: string[],
+    slots: { slot: string; value: string; criticality: string }[],
+    nextId: string, missingCritical: string[] = [],
+  ) => ({
+    id: `${prefix}.${id}`, phase, skill_tag: skill, speaker, voice_role: voiceRole,
+    line_template: tmpl, line_variants: variants,
+    expected_student_response: { type: 'readback', required_slots: slots, phraseology_hints: [] },
+    on_pass: { next: next(nextId) },
+    on_partial: { missing_critical: missingCritical, controller_correction: '{callsign}, say again.', retry_same_beat: true, max_retries: 2 },
+    on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: next(nextId) },
     on_say_again: { replay_audio: true },
   })
 
-  const twr = `${prefix}_tower`
+  // Pilot-initiated beat — student calls first, no ATC audio
+  const pi = (
+    id: string, phase: string, skill: string,
+    cueText: string, tuneTo: string, tuneLabel: string,
+    speaker: string, voiceRole: string,
+    slots: { slot: string; value: string; criticality: string }[],
+    nextId: string,
+  ) => ({
+    id: `${prefix}.${id}`, phase, skill_tag: skill,
+    type: 'pilot_initiated', cue_text: cueText,
+    tune_to: tuneTo, tune_label: tuneLabel,
+    speaker, voice_role: voiceRole,
+    line_template: '', line_variants: [],
+    expected_student_response: { type: 'pilot_initiated', required_slots: slots, phraseology_hints: [] },
+    on_pass: { next: next(nextId) },
+    on_partial: { missing_critical: ['callsign'], controller_correction: '{callsign}, say again with callsign.', retry_same_beat: true, max_retries: 2 },
+    on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: next(nextId) },
+    on_say_again: { replay_audio: true },
+  })
 
   return [
-    b('atis.listen', 'LISTEN_ATIS', 'atis_extraction', 'atis', `${prefix}_atis`,
+    // 1. ATIS — listen and confirm extraction
+    rb('atis.listen', 'ATIS', 'atis_extraction', 'atis', `${prefix}_atis`,
       `${airportName} Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.`,
-      [`${airportName} information {atis_letter}, wind {weather.wind}. Altimeter {weather.altimeter}. Active runway {runway}. Inform ${towerName} you have information {atis_letter}.`],
-      [std('atis_letter', '{atis_letter}'), std('runway', '{runway}'), std('altimeter', '{altimeter}')],
-      'taxi.request'),
+      [`${airportName} information {atis_letter}. Wind {weather.wind}. Altimeter {weather.altimeter}. Active runway {runway}. Advise Tower on initial contact you have information {atis_letter}.`],
+      [crit('atis_letter', '{atis_letter}'), std('runway', '{runway}'), std('altimeter', '{weather.altimeter}')],
+      'taxi.call'),
 
-    b('taxi.request', 'TAXI_REQUEST', 'taxi_request', 'tower', twr,
-      `{callsign}, ${towerName}, go ahead.`,
-      [`${towerName}, {callsign}.`],
-      [std('callsign', '{callsign}'), std('action', 'taxi'), std('atis_letter', '{atis_letter}')],
+    // 2. PILOT calls Tower — initial taxi request
+    pi('taxi.call', 'INITIAL_CALL', 'initial_call',
+      `Call ${towerName} ({tower_freq}).\nState: callsign · location · request taxi · have information {atis_letter}`,
+      '{tower_freq}', 'Tower', 'tower', twr,
+      [crit('callsign', '{callsign}'), std('action', 'taxi'), std('atis_letter', '{atis_letter}')],
       'taxi.clearance'),
 
-    b('taxi.clearance', 'TAXI', 'taxi_readback', 'tower', twr,
+    // 3. Tower — taxi clearance with hold short
+    rb('taxi.clearance', 'TAXI', 'taxi_readback', 'tower', twr,
       `{callsign}, ${towerName}, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.`,
-      ['{callsign}, taxi runway {runway} via taxiway {taxiway}, hold short {runway}.'],
+      ['{callsign}, taxi runway {runway} via {taxiway}, hold short {runway}.'],
       [std('runway', '{runway}'), std('via', '{taxiway}'), crit('hold_short_of', '{runway}'), std('callsign', '{callsign}')],
-      'runup.ready', ['hold_short_of']),
+      'runup.ready_call', ['hold_short_of']),
 
-    b('runup.ready', 'RUNUP_HOLD', 'runup_ready', 'tower', twr,
+    // 4. PILOT calls ready for departure
+    pi('runup.ready_call', 'RUNUP', 'ready_for_departure',
+      `Runup complete. Call ${towerName}.\nState: callsign · holding short runway {runway} · ready for departure`,
+      '{tower_freq}', 'Tower', 'tower', twr,
+      [crit('callsign', '{callsign}'), std('runway', '{runway}'), std('action', 'ready')],
+      'runup.hold_short'),
+
+    // 5. Tower — hold short with traffic
+    rb('runup.hold_short', 'HOLD_SHORT', 'hold_short_readback', 'tower', twr,
       '{callsign}, hold short runway {runway}, traffic on final.',
-      ['{callsign}, hold short runway {runway}, landing traffic.'],
+      ['{callsign}, hold short runway {runway}, landing traffic.', '{callsign}, hold short runway {runway}, traffic two-mile final.'],
       [crit('hold_short_of', '{runway}'), std('callsign', '{callsign}')],
       'takeoff.clearance', ['hold_short_of']),
 
-    b('takeoff.clearance', 'TAKEOFF_CLEARANCE', 'takeoff_readback', 'tower', twr,
+    // 6. Tower — cleared for takeoff
+    rb('takeoff.clearance', 'TAKEOFF', 'takeoff_readback', 'tower', twr,
       '{callsign}, runway {runway}, cleared for takeoff, wind {weather.wind}.',
-      ['{callsign}, cleared takeoff runway {runway}, wind {weather.wind}.'],
-      [std('action', 'cleared'), std('runway', '{runway}'), std('callsign', '{callsign}')],
-      'departure.freq'),
+      ['{callsign}, cleared for takeoff runway {runway}, wind {weather.wind}.'],
+      [crit('action', 'cleared for takeoff'), std('runway', '{runway}'), std('callsign', '{callsign}')],
+      'departure.handoff'),
 
-    b('departure.freq', 'DEPARTURE', 'freq_change_readback', 'tower', twr,
-      '{callsign}, contact Approach on {approach_freq}, good day.',
-      ['{callsign}, frequency change approved, Approach {approach_freq}.'],
+    // 7. Tower — frequency change to approach
+    rb('departure.handoff', 'DEPARTURE', 'freq_change_readback', 'tower', twr,
+      `{callsign}, contact ${approachFacility} on {approach_freq}, good day.`,
+      [`{callsign}, frequency change approved, ${approachFacility} {approach_freq}.`],
       [crit('frequency', '{approach_freq}'), std('callsign', '{callsign}')],
-      'practice.checkin', ['frequency']),
+      'approach.checkin', ['frequency']),
 
-    b('practice.checkin', 'PRACTICE_AREA', 'position_report_approach', 'approach', 'approach_control',
-      '{callsign}, Approach, radar contact, squawk 4523, report leaving the practice area.',
-      ['{callsign}, Approach, radar contact, squawk 4523.'],
-      [std('callsign', '{callsign}'), std('squawk', '4523')],
-      'return.request'),
+    // 8. PILOT checks in with Approach
+    pi('approach.checkin', 'APPROACH_CHECKIN', 'approach_initial_call',
+      `You've switched to ${approachFacility} ({approach_freq}). Check in.\nState: ${approachFacility} · callsign · altitude · position · request flight following`,
+      '{approach_freq}', 'Approach', 'approach', apc,
+      [crit('callsign', '{callsign}'), std('altitude', 'altitude'), std('request', 'flight following')],
+      'approach.squawk'),
 
-    b('return.request', 'RETURN_INBOUND', 'inbound_call', 'approach', 'approach_control',
-      `{callsign}, cleared to return to ${airportName}, contact Tower on {tower_freq}.`,
-      [`{callsign}, ${airportName} altimeter {weather.altimeter}, contact ${towerName} {tower_freq}.`],
+    // 9. Approach — radar contact + squawk
+    rb('approach.squawk', 'SQUAWK_ASSIGN', 'squawk_readback', 'approach', apc,
+      `{callsign}, ${approachFacility}, radar contact, squawk {squawk_code}, report leaving the practice area.`,
+      [`{callsign}, squawk {squawk_code}, ident.`, `{callsign}, radar contact, squawk {squawk_code}, altimeter {weather.altimeter}.`],
+      [crit('squawk', '{squawk_code}'), std('callsign', '{callsign}')],
+      'approach.leaving', ['squawk']),
+
+    // 10. PILOT reports leaving practice area
+    pi('approach.leaving', 'LEAVING_PRACTICE_AREA', 'position_report',
+      `Practice area complete. Report to ${approachFacility}.\nState: callsign · leaving the practice area · inbound {airport_name}`,
+      '{approach_freq}', 'Approach', 'approach', apc,
+      [crit('callsign', '{callsign}'), std('action', 'leaving'), std('destination', '{airport_name}')],
+      'approach.release'),
+
+    // 11. Approach — releases to tower
+    rb('approach.release', 'RETURN_HANDOFF', 'freq_change_readback', 'approach', apc,
+      `{callsign}, altimeter {weather.altimeter}, contact ${towerName} on {tower_freq}, good day.`,
+      [`{callsign}, squawk VFR, contact Tower {tower_freq}.`, `{callsign}, radar service terminated, contact ${towerName} {tower_freq}.`],
       [crit('frequency', '{tower_freq}'), std('callsign', '{callsign}')],
-      'pattern.entry', ['frequency']),
+      'pattern.inbound_call', ['frequency']),
 
-    b('pattern.entry', 'PATTERN_ENTRY', 'pattern_entry_readback', 'tower', twr,
-      '{callsign}, enter left downwind runway {runway}, number two, follow the Skyhawk on downwind.',
-      ['{callsign}, left downwind runway {runway}, number two traffic.'],
+    // 12. PILOT calls tower inbound
+    pi('pattern.inbound_call', 'INBOUND_CALL', 'inbound_call',
+      `Now on ${towerName} ({tower_freq}). Report inbound.\nState: ${towerName} · callsign · position & altitude · inbound full stop · have information {atis_letter}`,
+      '{tower_freq}', 'Tower', 'tower', twr,
+      [crit('callsign', '{callsign}'), std('action', 'inbound'), std('atis_letter', '{atis_letter}')],
+      'pattern.entry'),
+
+    // 13. Tower — pattern entry
+    rb('pattern.entry', 'PATTERN_ENTRY', 'pattern_entry_readback', 'tower', twr,
+      '{callsign}, enter left downwind runway {runway}, number two, follow the Cessna on downwind.',
+      ['{callsign}, make left traffic runway {runway}, number one, report midfield.', '{callsign}, enter left base runway {runway}, number one, cleared to land.'],
       [std('pattern_leg', 'downwind'), std('runway', '{runway}'), std('callsign', '{callsign}')],
       'landing.clearance'),
 
-    b('landing.clearance', 'LANDING_CLEARANCE', 'landing_readback', 'tower', twr,
+    // 14. Tower — cleared to land
+    rb('landing.clearance', 'LANDING', 'landing_readback', 'tower', twr,
       '{callsign}, runway {runway}, cleared to land, wind {weather.wind}.',
-      ['{callsign}, cleared land runway {runway}, wind {weather.wind}.'],
-      [std('action', 'cleared'), std('runway', '{runway}'), std('callsign', '{callsign}')],
+      ['{callsign}, cleared to land runway {runway}, wind {weather.wind}.'],
+      [crit('action', 'cleared to land'), std('runway', '{runway}'), std('callsign', '{callsign}')],
       'taxi.parking'),
 
-    b('taxi.parking', 'TAXI_TO_PARKING', 'taxi_to_parking_readback', 'tower', twr,
+    // 15. Tower — taxi to parking
+    rb('taxi.parking', 'TAXI_TO_PARKING', 'taxi_to_parking_readback', 'tower', twr,
       '{callsign}, taxi to parking via {taxiway}.',
-      ['{callsign}, taxi to parking via {taxiway}, see ya.'],
+      ['{callsign}, clear the runway, taxi to parking.', '{callsign}, taxi to parking via {taxiway}, see ya.'],
       [std('via', '{taxiway}'), std('callsign', '{callsign}')],
       '__debrief__'),
   ]
@@ -441,7 +492,7 @@ Deno.serve(async (req: Request) => {
   // Strict ICAO validation — alphanumeric only, 3-4 chars
   if (!/^[A-Z0-9]{3,4}$/.test(icao)) return cors({ error: 'Invalid ICAO code' }, 400)
 
-  const apiKey = Deno.env.get('ASSEMBLYAI_API_KEY') ?? ''
+  const apiKey = Deno.env.get('OPENAI_API_KEY') ?? ''
   // Use lowercase letters only as beat prefix to prevent path traversal
   const prefix = icao.toLowerCase().replace(/[^a-z0-9]/g, '')
 
@@ -458,7 +509,7 @@ Deno.serve(async (req: Request) => {
   const taxiways = airportData?.taxiways ?? ['alpha']
   const towerFreq = airportData?.tower_freq ?? ''
   const controlled = !!towerFreq
-  const approachFacility = 'Approach'
+  const approachFacility = llmData?.approach_facility ?? 'Approach'
 
   let beats: unknown[]
   let scenarioName: string
@@ -478,7 +529,7 @@ Deno.serve(async (req: Request) => {
       estimatedMin = 8
     }
   } else {
-    beats = buildBeats(prefix, airportName, towerName)
+    beats = buildBeats(prefix, airportName, towerName, approachFacility)
     scenarioName = llmData?.scenario_name ?? `${icao} Full Pattern Flight`
     scenarioDescription = llmData?.scenario_description
       ?? `Full VFR pattern flight at ${icao}: ATIS, taxi, takeoff, practice area, return, pattern, landing.`
@@ -492,6 +543,7 @@ Deno.serve(async (req: Request) => {
     tower_freq: towerFreq, // empty string for uncontrolled airports
     approach_freq: airportData?.approach_freq ?? '124.0',
     atis_freq: airportData?.atis_freq ?? '120.6',
+    approach_facility: approachFacility,
     ctaf_freq: controlled ? undefined : (airportData?.atis_freq || '122.8'),
     pattern_altitude_ft: 1000,
     runways,
