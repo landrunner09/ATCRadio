@@ -15,6 +15,7 @@ import { useASRRecorder } from '@/audio/useASRRecorder'
 import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
 import { RadioTuner } from '@/components/RadioTuner'
+import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -245,15 +246,13 @@ export default function HudScreen() {
 
   return (
     <View className="flex-1 bg-bg">
-      {/* Status bar */}
-      <View className="flex-row justify-between px-5 pt-14 pb-2 border-b border-line">
-        <Text className="text-dim text-xs font-mono uppercase tracking-widest">
-          {ctx.scenarioContext?.callsign ?? '—'} · {pack.airport_icao} {mode === 'drill' ? '· DRILL' : ''}
-        </Text>
-        <Text className="text-dim text-xs font-mono">
-          {'COM1 '}{currentFreq} · {ctx.scenarioContext?.weather.wind ?? '—'}
-        </Text>
-      </View>
+      <HudStatusBar
+        callsign={ctx.scenarioContext?.callsign ?? ''}
+        airportIcao={pack.airport_icao}
+        drillMode={mode === 'drill'}
+        currentFreq={currentFreq}
+        wind={ctx.scenarioContext?.weather.wind ?? ''}
+      />
 
       {/* Phase pips */}
       <View className="flex-row items-center px-5 py-3 gap-3">
