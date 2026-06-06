@@ -33,7 +33,7 @@
       "listen_only": true,
       "tune_to": "{atis_freq}",
       "tune_label": "ATIS",
-      "line_template": "Livermore Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise Ground on initial contact you have information {atis_letter}.",
+      "line_template": "Livermore Airport information {atis_letter}. {atis_time} Zulu weather. Wind {weather.wind}, visibility {weather.vis}, sky {weather.sky}, temperature {weather.temp}, dewpoint {weather.dewpoint}, altimeter {weather.altimeter}. Runway {runway} in use. {notams}. Advise Ground on initial contact you have information {atis_letter}.",
       "line_variants": [
         "Livermore information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}. Altimeter {weather.altimeter}. Active runway {runway}. Inform Livermore Ground on initial contact you have information {atis_letter}."
       ],
@@ -66,7 +66,7 @@
       "phase": "INITIAL_CALL",
       "skill_tag": "initial_call",
       "type": "pilot_initiated",
-      "cue_text": "Call {airport_name} Ground ({ground_freq}).\nState: callsign \u00b7 location \u00b7 request taxi \u00b7 have information {atis_letter}",
+      "cue_text": "Call Livermore Ground ({ground_freq}).\nState: callsign \u00b7 location \u00b7 with information {atis_letter} \u00b7 request taxi",
       "tune_to": "{ground_freq}",
       "tune_label": "Ground",
       "speaker": "ground",
@@ -120,7 +120,7 @@
       "skill_tag": "taxi_readback",
       "speaker": "ground",
       "voice_role": "klvk_ground",
-      "line_template": "{callsign}, {airport_name} Ground, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.",
+      "line_template": "{callsign}, runway {runway}, taxi via {taxiway}, hold short of runway {runway}.",
       "line_variants": [
         "{callsign}, taxi runway {runway} via {taxiway}, hold short {runway}."
       ],
@@ -130,7 +130,7 @@
           {
             "slot": "runway",
             "value": "{runway}",
-            "criticality": "standard"
+            "criticality": "critical"
           },
           {
             "slot": "via",
@@ -145,7 +145,7 @@
           {
             "slot": "callsign",
             "value": "{callsign}",
-            "criticality": "standard"
+            "criticality": "critical"
           }
         ],
         "phraseology_hints": [
@@ -278,7 +278,7 @@
       "skill_tag": "takeoff_readback",
       "speaker": "tower",
       "voice_role": "klvk_tower",
-      "line_template": "{callsign}, runway {runway}, cleared for takeoff, wind {weather.wind}.",
+      "line_template": "{callsign}, wind {weather.wind}, runway {runway}, cleared for takeoff.",
       "line_variants": [
         "{callsign}, cleared for takeoff runway {runway}, wind {weather.wind}.",
         "{callsign}, fly runway heading, cleared for takeoff runway {runway}, wind {weather.wind}."
@@ -294,7 +294,7 @@
           {
             "slot": "runway",
             "value": "{runway}",
-            "criticality": "standard"
+            "criticality": "critical"
           },
           {
             "slot": "callsign",
@@ -333,7 +333,6 @@
       "voice_role": "klvk_tower",
       "line_template": "{callsign}, contact {approach_facility} on {approach_freq}, good day.",
       "line_variants": [
-        "{callsign}, frequency change approved, {approach_facility} {approach_freq}.",
         "{callsign}, {approach_facility} {approach_freq}, so long."
       ],
       "expected_student_response": {
@@ -432,10 +431,9 @@
       "skill_tag": "squawk_readback",
       "speaker": "approach",
       "voice_role": "klvk_approach",
-      "line_template": "{callsign}, radar contact, squawk {squawk_code}, report leaving the practice area.",
+      "line_template": "{callsign}, {approach_facility}, squawk {squawk_code} and ident.",
       "line_variants": [
-        "{callsign}, squawk {squawk_code}, ident.",
-        "{callsign}, radar contact, squawk {squawk_code}, altimeter {weather.altimeter}."
+        "{callsign}, squawk {squawk_code} and ident."
       ],
       "expected_student_response": {
         "type": "readback",
@@ -456,7 +454,7 @@
         ]
       },
       "on_pass": {
-        "next": "klvk.approach.leaving"
+        "next": "klvk.approach.radar_contact"
       },
       "on_partial": {
         "missing_critical": [
@@ -468,11 +466,40 @@
       },
       "on_fail_after_retries": {
         "scaffold_mode": true,
-        "next_after_scaffold_pass": "klvk.approach.leaving"
+        "next_after_scaffold_pass": "klvk.approach.radar_contact"
       },
       "on_say_again": {
         "replay_audio": true
       }
+    },
+    {
+      "id": "klvk.approach.radar_contact",
+      "phase": "RADAR_CONTACT",
+      "skill_tag": "radar_contact_acknowledge",
+      "listen_only": true,
+      "speaker": "approach",
+      "voice_role": "klvk_approach",
+      "line_template": "{callsign}, radar contact 5 miles south of Livermore, altimeter {weather.altimeter}, report leaving the practice area.",
+      "line_variants": [
+        "{callsign}, radar contact, altimeter {weather.altimeter}."
+      ],
+      "expected_student_response": {
+        "type": "readback",
+        "required_slots": [],
+        "phraseology_hints": []
+      },
+      "on_pass": { "next": "klvk.approach.leaving" },
+      "on_partial": {
+        "missing_critical": [],
+        "controller_correction": "",
+        "retry_same_beat": false,
+        "max_retries": 0
+      },
+      "on_fail_after_retries": {
+        "scaffold_mode": true,
+        "next_after_scaffold_pass": "klvk.approach.leaving"
+      },
+      "on_say_again": { "replay_audio": true }
     },
     {
       "id": "klvk.approach.leaving",
@@ -578,7 +605,7 @@
       "phase": "INBOUND_CALL",
       "skill_tag": "inbound_call",
       "type": "pilot_initiated",
-      "cue_text": "Now on {airport_name} Tower ({tower_freq}). Report inbound.\nState: {airport_name} Tower \u00b7 callsign \u00b7 position & altitude \u00b7 inbound full stop \u00b7 have information {atis_letter}",
+      "cue_text": "Now on {airport_name} Tower ({tower_freq}). Report inbound.\nState: {airport_name} Tower \u00b7 callsign \u00b7 position & altitude \u00b7 inbound, landing \u00b7 with information {atis_letter}",
       "tune_to": "{tower_freq}",
       "tune_label": "Tower",
       "speaker": "tower",
@@ -604,7 +631,7 @@
           }
         ],
         "phraseology_hints": [
-          "{airport_name} Tower, {callsign}, ten miles west, two thousand five hundred, inbound full stop, information {atis_letter}."
+          "{airport_name} Tower, {callsign}, ten miles west, two thousand five hundred, inbound, landing, with information {atis_letter}."
         ]
       },
       "on_pass": {
@@ -649,12 +676,12 @@
           {
             "slot": "runway",
             "value": "{runway}",
-            "criticality": "standard"
+            "criticality": "critical"
           },
           {
             "slot": "callsign",
             "value": "{callsign}",
-            "criticality": "standard"
+            "criticality": "critical"
           }
         ],
         "phraseology_hints": [
@@ -684,7 +711,7 @@
       "skill_tag": "landing_readback",
       "speaker": "tower",
       "voice_role": "klvk_tower",
-      "line_template": "{callsign}, runway {runway}, cleared to land, wind {weather.wind}.",
+      "line_template": "{callsign}, wind {weather.wind}, runway {runway}, cleared to land.",
       "line_variants": [
         "{callsign}, cleared to land runway {runway}, wind {weather.wind}.",
         "{callsign}, number one, runway {runway}, cleared to land."
@@ -700,7 +727,7 @@
           {
             "slot": "runway",
             "value": "{runway}",
-            "criticality": "standard"
+            "criticality": "critical"
           },
           {
             "slot": "callsign",
@@ -778,5 +805,5 @@
       }
     }
   ],
-  "pack_schema_version": 4
+  "pack_schema_version": 5
 }
