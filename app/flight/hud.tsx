@@ -15,7 +15,7 @@ import { useASRRecorder } from '@/audio/useASRRecorder'
 import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
 import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
-import { TunerCard } from '@/components/hud/TunerCard'
+import { ComRadio } from '@/components/hud/ComRadio'
 import { PhasePips } from '@/components/hud/PhasePips'
 import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { ListenCard } from '@/components/hud/ListenCard'
@@ -57,10 +57,16 @@ export default function HudScreen() {
   // Resets to 'idle' on each PTT release; never reaches the XState machine.
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle')
 
-  // Initialised to a "wrong" starting freq so ATIS requires the student to tune.
-  const [currentFreq, setCurrentFreq] = useState(() =>
-    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '121.500'
+  // ACT/STBY radio state (Garmin-style). ACT starts at ATIS freq so the scenario
+  // begins with the student already listening to ATIS. STBY blank.
+  const [activeFreq, setActiveFreq] = useState(() =>
+    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '118.000'
   )
+  const [standbyFreq, setStandbyFreq] = useState('118.000')
+
+  // Backwards compatibility alias for code that still references currentFreq.
+  // Will be removed once all references are migrated.
+  const currentFreq = activeFreq
   const pack = mode === 'drill'
     ? { ...FULL_PACK, beats: FULL_PACK.beats.filter(b => selectedBeatIds.includes(b.id)) }
     : FULL_PACK
@@ -151,6 +157,17 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
+  // Reverse-lookup: given a freq, return the facility name for display in <ComRadio>
+  const facilityLabel = useCallback((freq: string): string => {
+    if (!freq) return ''
+    if (freq === FULL_PACK.atis_freq) return 'ATIS'
+    if (freq === FULL_PACK.tower_freq) return 'Tower'
+    if (freq === FULL_PACK.approach_freq) return 'Approach'
+    const ground = (FULL_PACK as { ground_freq?: string }).ground_freq
+    if (ground && freq === ground) return 'Ground'
+    return ''
+  }, [FULL_PACK.atis_freq, FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK])
+
   // Prefetch next beat's TTS while the user is responding (hides API latency)
   useEffect(() => {
     if (!state.matches({ tuning_or_speaking: 'awaiting_response' }) || !nextAtcLine) return
@@ -181,6 +198,18 @@ export default function HudScreen() {
       s.stop()
     }
   }, [state.value])
+
+  // Garmin-style: dispatch TUNED automatically when ACT freq matches the beat's required freq.
+  // The student tunes STBY then swaps; the moment ACT == target, the machine advances.
+  useEffect(() => {
+    if (!state.matches({ tuning_or_speaking: 'tuning' })) return
+    if (!beat?.tune_to) return
+    const target = resolveTuneTo(beat.tune_to)
+    if (activeFreq === target) {
+      send({ type: 'TUNED' })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.value, activeFreq, ctx.beatIndex])
 
   const handlePTTPress = useCallback(async () => {
     if (pttHandlingRef.current) return
@@ -265,7 +294,6 @@ export default function HudScreen() {
         callsign={ctx.scenarioContext?.callsign ?? ''}
         airportIcao={pack.airport_icao}
         drillMode={mode === 'drill'}
-        currentFreq={currentFreq}
         wind={ctx.scenarioContext?.weather.wind ?? ''}
       />
 
@@ -297,14 +325,18 @@ export default function HudScreen() {
         />
       )}
 
-      {state.matches({ tuning_or_speaking: 'tuning' }) && beat?.tune_to && (
-        <TunerCard
-          targetFreq={resolveTuneTo(beat.tune_to)}
-          targetLabel={beat.tune_label ?? ''}
-          startFreq={currentFreq}
-          onConfirmed={(freq) => {
-            setCurrentFreq(freq)
-            send({ type: 'TUNED' })
+      {state.value !== 'preflight' && state.value !== 'idle' && (
+        <ComRadio
+          activeFreq={activeFreq}
+          standbyFreq={standbyFreq}
+          activeLabel={facilityLabel(activeFreq)}
+          standbyLabel={facilityLabel(standbyFreq)}
+          targetFreq={beat?.tune_to ? resolveTuneTo(beat.tune_to) : ''}
+          onAdjustStandby={setStandbyFreq}
+          onSwap={() => {
+            const tmp = activeFreq
+            setActiveFreq(standbyFreq)
+            setStandbyFreq(tmp)
           }}
         />
       )}
