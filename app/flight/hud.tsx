@@ -58,15 +58,23 @@ export default function HudScreen() {
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle')
 
   // ACT/STBY radio state (Garmin-style). ACT starts at ATIS freq so the scenario
-  // begins with the student already listening to ATIS. STBY blank.
-  // Initial values are normalized to 3-decimal canonical form so comparisons
-  // with ComRadio output ("119.800") and pack freqs ("119.8") work uniformly.
-  const [activeFreq, setActiveFreq] = useState(() => {
-    const raw = (FULL_PACK as { atis_freq?: string }).atis_freq ?? '118.000'
+  // begins with the student already listening to ATIS. STBY pre-tuned to the
+  // first transmit target (Ground if the airport has separate ground control,
+  // otherwise Tower) — this matches the pre-flight workflow of a real pilot.
+  // Both normalized to 3-decimal canonical form for comparison consistency.
+  const _norm = (raw: string | undefined): string => {
+    if (!raw) return '118.000'
     const n = parseFloat(raw)
     return isFinite(n) ? n.toFixed(3) : '118.000'
+  }
+  const [activeFreq, setActiveFreq] = useState(() =>
+    _norm((FULL_PACK as { atis_freq?: string }).atis_freq)
+  )
+  const [standbyFreq, setStandbyFreq] = useState(() => {
+    // Pre-tune STBY to the next transmit target: Ground if airport has it, else Tower.
+    const ground = (FULL_PACK as { ground_freq?: string }).ground_freq
+    return _norm(ground || FULL_PACK.tower_freq)
   })
-  const [standbyFreq, setStandbyFreq] = useState('118.000')
 
   // Backwards compatibility alias for code that still references currentFreq.
   // Will be removed once all references are migrated.
