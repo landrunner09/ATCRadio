@@ -18,6 +18,7 @@ import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
 import { TunerCard } from '@/components/hud/TunerCard'
 import { PhasePips } from '@/components/hud/PhasePips'
 import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
+import { ListenCard } from '@/components/hud/ListenCard'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -318,17 +319,8 @@ export default function HudScreen() {
         />
       )}
 
-      {/* TAP TO LISTEN — ATIS only: student triggers ATIS broadcast manually */}
       {state.matches({ tuning_or_speaking: 'awaiting_listen' }) && (
-        <TouchableOpacity
-          className="mx-5 mb-3 rounded-2xl py-5 items-center"
-          style={{ backgroundColor: 'rgba(111,227,255,0.08)', borderWidth: 1.5, borderColor: '#6FE3FF' }}
-          onPress={() => send({ type: 'LISTEN_TAPPED' })}
-        >
-          <Text style={{ color: '#6FE3FF', fontSize: 22, marginBottom: 6 }}>📻</Text>
-          <Text style={{ color: '#6FE3FF' }} className="font-bold text-base tracking-wide">TAP TO LISTEN TO ATIS</Text>
-          <Text className="text-dim text-xs mt-1">Listen carefully — note the ATIS letter, runway and altimeter</Text>
-        </TouchableOpacity>
+        <ListenCard onTap={() => send({ type: 'LISTEN_TAPPED' })} />
       )}
 
       {/* Cue card — for pilot_initiated beats (shown during awaiting_response and atc_speaking) */}
