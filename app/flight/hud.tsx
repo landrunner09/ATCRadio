@@ -14,8 +14,8 @@ import { useTTSPlayer, prefetchTTSBatch } from '@/audio/useTTSPlayer'
 import { useASRRecorder } from '@/audio/useASRRecorder'
 import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
-import { RadioTuner } from '@/components/RadioTuner'
 import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
+import { TunerCard } from '@/components/hud/TunerCard'
 import { PhasePips } from '@/components/hud/PhasePips'
 import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { useBadges } from '@/hooks/useBadges'
@@ -306,9 +306,8 @@ export default function HudScreen() {
       )}
 
 
-      {/* Radio tuner — shown on any beat with tune_to while machine is in tuning sub-state */}
       {state.matches({ tuning_or_speaking: 'tuning' }) && beat?.tune_to && (
-        <RadioTuner
+        <TunerCard
           targetFreq={resolveTuneTo(beat.tune_to)}
           targetLabel={beat.tune_label ?? ''}
           startFreq={currentFreq}
