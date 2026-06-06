@@ -140,6 +140,17 @@ Return only valid JSON, no markdown, no extra keys.`,
     if (typeof parsed !== 'object' || parsed === null) return null
     const p = parsed as Record<string, unknown>
 
+    // B18: strip forbidden phrases from any LLM-generated text fields
+    const FORBIDDEN_RE = [/\bwith you\b/gi, /\bany traffic in the area please advise\b/gi, /\bfor the numbers\b/gi]
+    const clean = (s: string | null | undefined): string | null => {
+      if (typeof s !== 'string') return s ?? null
+      let out = s
+      for (const re of FORBIDDEN_RE) out = out.replace(re, '')
+      return out.replace(/\s{2,}/g, ' ').trim()
+    }
+    if (typeof p.scenario_description === 'string') p.scenario_description = clean(p.scenario_description)
+    if (typeof p.airport_name === 'string') p.airport_name = clean(p.airport_name)
+
     return {
       airport_name: typeof p.airport_name === 'string' ? p.airport_name : rawName,
       city: typeof p.city === 'string' ? p.city : '',
@@ -207,9 +218,9 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
       id: `${prefix}.atis.listen`, phase: 'ATIS', skill_tag: 'atis_extraction',
       speaker: 'atis', voice_role: `${prefix}_atis`,
       listen_only: true, tune_to: '{atis_freq}', tune_label: 'ATIS',
-      line_template: `${airportName} Airport information {atis_letter}. Wind {weather.wind}, visibility {weather.vis}, altimeter {weather.altimeter}. Runway {runway} in use. Advise on initial contact you have information {atis_letter}.`,
+      line_template: `${airportName} Airport information {atis_letter}. {atis_time} Zulu weather. Wind {weather.wind}, visibility {weather.vis}, sky {weather.sky}, temperature {weather.temp}, dewpoint {weather.dewpoint}, altimeter {weather.altimeter}. Runway {runway} in use. {notams}. Advise on initial contact you have information {atis_letter}.`,
       line_variants: [`${airportName} information {atis_letter}. Wind {weather.wind}. Altimeter {weather.altimeter}. Active runway {runway}. Advise Tower on initial contact you have information {atis_letter}.`],
-      expected_student_response: { type: 'readback', required_slots: [], phraseology_hints: [] },
+      expected_student_response: { type: 'readback', required_slots: [crit('atis_letter', '{atis_letter}'), crit('altimeter', '{weather.altimeter}')], phraseology_hints: [] },
       on_pass: { next: next('taxi.call') },
       on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: false, max_retries: 0 },
       on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: next('taxi.call') },
@@ -225,10 +236,10 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
 
     // 3. Tower — taxi clearance with hold short
     rb('taxi.clearance', 'TAXI', 'taxi_readback', 'tower', twr,
-      `{callsign}, ${towerName}, taxi to runway {runway} via {taxiway}, hold short of runway {runway}.`,
+      `{callsign}, runway {runway}, taxi via {taxiway}, hold short of runway {runway}.`,
       ['{callsign}, taxi runway {runway} via {taxiway}, hold short {runway}.'],
-      [std('runway', '{runway}'), std('via', '{taxiway}'), crit('hold_short_of', '{runway}'), std('callsign', '{callsign}')],
-      'runup.ready_call', ['hold_short_of']),
+      [crit('runway', '{runway}'), std('via', '{taxiway}'), crit('hold_short_of', '{runway}'), crit('callsign', '{callsign}')],
+      'runup.ready_call', ['hold_short_of', 'runway']),
 
     // 4. PILOT calls ready for departure
     pi('runup.ready_call', 'RUNUP', 'ready_for_departure',
@@ -241,20 +252,20 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
     rb('runup.hold_short', 'HOLD_SHORT', 'hold_short_readback', 'tower', twr,
       '{callsign}, hold short runway {runway}, traffic on final.',
       ['{callsign}, hold short runway {runway}, landing traffic.', '{callsign}, hold short runway {runway}, traffic two-mile final.'],
-      [crit('hold_short_of', '{runway}'), std('callsign', '{callsign}')],
-      'takeoff.clearance', ['hold_short_of']),
+      [crit('hold_short_of', '{runway}'), crit('runway', '{runway}'), crit('callsign', '{callsign}')],
+      'takeoff.clearance', ['hold_short_of', 'runway']),
 
     // 6. Tower — cleared for takeoff
     rb('takeoff.clearance', 'TAKEOFF', 'takeoff_readback', 'tower', twr,
-      '{callsign}, runway {runway}, cleared for takeoff, wind {weather.wind}.',
+      '{callsign}, wind {weather.wind}, runway {runway}, cleared for takeoff.',
       ['{callsign}, cleared for takeoff runway {runway}, wind {weather.wind}.'],
-      [crit('action', 'cleared for takeoff'), std('runway', '{runway}'), std('callsign', '{callsign}')],
+      [crit('action', 'cleared for takeoff'), crit('runway', '{runway}'), std('callsign', '{callsign}')],
       'departure.handoff'),
 
     // 7. Tower — frequency change to approach
     rb('departure.handoff', 'DEPARTURE', 'freq_change_readback', 'tower', twr,
       `{callsign}, contact ${approachFacility} on {approach_freq}, good day.`,
-      [`{callsign}, frequency change approved, ${approachFacility} {approach_freq}.`],
+      [`{callsign}, ${approachFacility} {approach_freq}, good day.`],
       [crit('frequency', '{approach_freq}'), std('callsign', '{callsign}')],
       'approach.checkin', ['frequency']),
 
@@ -265,12 +276,29 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
       [crit('callsign', '{callsign}'), std('altitude', 'altitude'), std('request', 'flight following')],
       'approach.squawk'),
 
-    // 9. Approach — radar contact + squawk
+    // 9. Approach — squawk and ident
     rb('approach.squawk', 'SQUAWK_ASSIGN', 'squawk_readback', 'approach', apc,
-      `{callsign}, ${approachFacility}, radar contact, squawk {squawk_code}, report leaving the practice area.`,
-      [`{callsign}, squawk {squawk_code}, ident.`, `{callsign}, radar contact, squawk {squawk_code}, altimeter {weather.altimeter}.`],
+      `{callsign}, ${approachFacility}, squawk {squawk_code} and ident.`,
+      [`{callsign}, squawk {squawk_code} and ident.`],
       [crit('squawk', '{squawk_code}'), std('callsign', '{callsign}')],
-      'approach.leaving', ['squawk']),
+      'approach.radar_contact', ['squawk']),
+
+    // 9b. Approach — radar contact (listen_only, informational)
+    {
+      id: `${prefix}.approach.radar_contact`,
+      phase: 'RADAR_CONTACT',
+      skill_tag: 'radar_contact_acknowledge',
+      listen_only: true,
+      speaker: 'approach',
+      voice_role: apc,
+      line_template: `{callsign}, radar contact 5 miles south of ${airportName}, altimeter {weather.altimeter}, report leaving the practice area.`,
+      line_variants: [`{callsign}, radar contact, altimeter {weather.altimeter}.`],
+      expected_student_response: { type: 'readback', required_slots: [], phraseology_hints: [] },
+      on_pass: { next: next('approach.leaving') },
+      on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: false, max_retries: 0 },
+      on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: next('approach.leaving') },
+      on_say_again: { replay_audio: true },
+    },
 
     // 10. PILOT reports leaving practice area
     pi('approach.leaving', 'LEAVING_PRACTICE_AREA', 'position_report',
@@ -297,14 +325,14 @@ function buildBeats(prefix: string, airportName: string, towerName: string, appr
     rb('pattern.entry', 'PATTERN_ENTRY', 'pattern_entry_readback', 'tower', twr,
       '{callsign}, enter left downwind runway {runway}, number two, follow the Cessna on downwind.',
       ['{callsign}, make left traffic runway {runway}, number one, report midfield.', '{callsign}, enter left base runway {runway}, number one, cleared to land.'],
-      [std('pattern_leg', 'downwind'), std('runway', '{runway}'), std('callsign', '{callsign}')],
+      [std('pattern_leg', 'downwind'), crit('runway', '{runway}'), crit('callsign', '{callsign}')],
       'landing.clearance'),
 
     // 14. Tower — cleared to land
     rb('landing.clearance', 'LANDING', 'landing_readback', 'tower', twr,
-      '{callsign}, runway {runway}, cleared to land, wind {weather.wind}.',
+      '{callsign}, wind {weather.wind}, runway {runway}, cleared to land.',
       ['{callsign}, cleared to land runway {runway}, wind {weather.wind}.'],
-      [crit('action', 'cleared to land'), std('runway', '{runway}'), std('callsign', '{callsign}')],
+      [crit('action', 'cleared to land'), crit('runway', '{runway}'), std('callsign', '{callsign}')],
       'taxi.parking'),
 
     // 15. Tower — taxi to parking
@@ -566,7 +594,7 @@ Deno.serve(async (req: Request) => {
     : (airportData?.approach_freq ?? '124.0')
 
   const pack = {
-    pack_schema_version: 4,
+    pack_schema_version: 5,
     airport_icao: icao,
     airport_name: airportName,
     city,
