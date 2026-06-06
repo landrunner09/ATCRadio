@@ -19,8 +19,6 @@ import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
 
-type LocalState = 'idle' | 'tuning' | 'awaiting_listen' | 'recording' | 'processing'
-
 export default function HudScreen() {
   const router = useRouter()
   const [scenarioContext] = useState(() => {
@@ -48,12 +46,8 @@ export default function HudScreen() {
 
   const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
-  // localState: initialise to 'tuning' if the ATIS (first) beat requires a freq change.
-  // In drill mode, the effect below immediately corrects this if the first drill beat
-  // has no tune_to (e.g. HOLD_SHORT) — the one-frame correction is imperceptible.
-  const [localState, setLocalState] = useState<LocalState>(() =>
-    FULL_PACK.beats[0]?.tune_to ? 'tuning' : 'idle'
-  )
+  // PTT recording/processing state — separate concern from the scenario flow machine
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle')
 
   // Initialised to a "wrong" starting freq so ATIS requires the student to tune.
   const [currentFreq, setCurrentFreq] = useState(() =>
@@ -149,26 +143,9 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
-  // Drive localState from machine state + beat shape.
-  // Called on every beat/state change — always resolves to the correct state.
-  useEffect(() => {
-    const activeState = state.value === 'atc_speaking' || state.value === 'awaiting_response'
-    if (!activeState || !beat) return
-
-    if (beat.tune_to) {
-      // Beat requires frequency change → show tuner
-      setLocalState('tuning')
-    } else {
-      // No tuning required (readback, drill-started mid-scenario, etc.) → unlock immediately.
-      // This also corrects the 'tuning' initial value when drill starts on a non-tune beat.
-      setLocalState('idle')
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, ctx.beatIndex])
-
   // Prefetch next beat's TTS while the user is responding (hides API latency)
   useEffect(() => {
-    if (state.value !== 'awaiting_response' || !nextAtcLine) return
+    if (!state.matches({ tuning_or_speaking: 'awaiting_response' }) || !nextAtcLine) return
     prefetchNextTTS()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.value, nextAtcLine])
@@ -176,21 +153,19 @@ export default function HudScreen() {
   // listen_only beats (ATIS): auto-advance after student manually triggers playback
   // Machine enters awaiting_response → we immediately advance (no grading needed)
   useEffect(() => {
-    if (state.value !== 'awaiting_response' || !beat?.listen_only) return
+    if (!state.matches({ tuning_or_speaking: 'awaiting_response' }) || !beat?.listen_only) return
     send({ type: 'RESPOND', transcript: '__listen_only__', confidence: 1 })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.value, ctx.beatIndex])
 
-  // When machine enters atc_speaking, play TTS.
-  // For beats with tune_to, playback is gated: tuning → awaiting_listen → idle → play.
+  // When machine enters atc_speaking sub-state, play TTS
   useEffect(() => {
-    if (state.value !== 'atc_speaking') return
+    if (!state.matches({ tuning_or_speaking: 'atc_speaking' })) return
+    // pilot_initiated beats have no ATC audio — skip directly to advance via ATC_DONE
     if (beat?.type === 'pilot_initiated') {
       send({ type: 'ATC_DONE' })
       return
     }
-    // Gate behind tuner and manual "tap to listen" if required
-    if (localState === 'tuning' || localState === 'awaiting_listen') return
     setTtsError(null)
     playTTS().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -199,13 +174,13 @@ export default function HudScreen() {
       send({ type: 'ATC_DONE' })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, atcLine, localState])
+  }, [state.value, atcLine])
 
   // Start radio static during student response window; stop when ATC speaks or recording
   useEffect(() => {
     const s = ambienceRef.current
     if (!s) return
-    if (state.value === 'awaiting_response') {
+    if (state.matches({ tuning_or_speaking: 'awaiting_response' })) {
       s.start()
     } else {
       s.stop()
@@ -216,14 +191,14 @@ export default function HudScreen() {
     if (pttHandlingRef.current) return
     pttHandlingRef.current = true
     setAsrError(null)
-    setLocalState('recording')
+    setRecordingState('recording')
     await startRecording()
   }, [startRecording])
 
   const handlePTTRelease = useCallback(async () => {
-    setLocalState('processing')
+    setRecordingState('processing')
     const result = await stopRecording()
-    setLocalState('idle')
+    setRecordingState('idle')
     pttHandlingRef.current = false
 
     if (!result.transcript) {
@@ -265,8 +240,8 @@ export default function HudScreen() {
 
   const phaseIndex = beat ? pack.beats.findIndex(b => b.id === beat.id) : 0
 
-  const isPTTEnabled = state.value === 'awaiting_response' && localState === 'idle'
-  const isAtcSpeaking = state.value === 'atc_speaking'
+  const isPTTEnabled = state.matches({ tuning_or_speaking: 'awaiting_response' }) && recordingState === 'idle'
+  const isAtcSpeaking = state.matches({ tuning_or_speaking: 'atc_speaking' })
 
   return (
     <View className="flex-1 bg-bg">
@@ -301,12 +276,12 @@ export default function HudScreen() {
       {beat && state.value !== 'preflight' && (
         <View className="mx-5 mb-3 px-3 py-2 bg-surface2 rounded-xl border border-line flex-row justify-between items-center">
           <Text className="text-muted text-xs uppercase tracking-widest">
-            {beat.listen_only && localState === 'tuning'   ? '📻 Tune to ATIS'
-           : beat.listen_only && localState === 'awaiting_listen' ? '📻 Tap to Listen'
-           : beat.listen_only                              ? '📻 Listening…'
-           : localState === 'tuning'                       ? '📡 Tune Radio'
-           : beat.type === 'pilot_initiated'               ? '🎙 Your Call'
-           : state.value === 'atc_speaking'                ? '📣 ATC Speaking'
+            {beat.listen_only && state.matches({ tuning_or_speaking: 'tuning' })         ? '📻 Tune to ATIS'
+           : beat.listen_only && state.matches({ tuning_or_speaking: 'awaiting_listen' }) ? '📻 Tap to Listen'
+           : beat.listen_only                                                              ? '📻 Listening…'
+           : state.matches({ tuning_or_speaking: 'tuning' })                             ? '📡 Tune Radio'
+           : beat.type === 'pilot_initiated'                                              ? '🎙 Your Call'
+           : state.matches({ tuning_or_speaking: 'atc_speaking' })                       ? '📣 ATC Speaking'
            : 'Now Grading'}
           </Text>
           <Text className="text-accent text-xs font-semibold">{beat.skill_tag.replace(/_/g, ' ').toUpperCase()}</Text>
@@ -318,9 +293,9 @@ export default function HudScreen() {
         <AirportDiagram pack={pack} beatId={beat?.id} />
       </View>
 
-      {/* ATC card — hidden while tuning/awaiting (don't spoil ATIS before student tunes) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat && beat.type !== 'pilot_initiated'
-        && localState !== 'tuning' && localState !== 'awaiting_listen' && (
+      {/* ATC card — only shown while atc_speaking (hides during tuning/awaiting_listen/awaiting_response) */}
+      {beat && beat.type !== 'pilot_initiated'
+        && state.matches({ tuning_or_speaking: 'atc_speaking' }) && (
         <View className="mx-5 mb-3 bg-surface2 rounded-2xl border border-line p-4">
           <View className="flex-row justify-between items-center mb-2">
             <View className="flex-row items-center gap-2">
@@ -344,31 +319,25 @@ export default function HudScreen() {
       )}
 
 
-      {/* Radio tuner — shown on any beat with tune_to (ATIS, pilot-initiated, etc.) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.tune_to && localState === 'tuning' && (
+      {/* Radio tuner — shown on any beat with tune_to while machine is in tuning sub-state */}
+      {state.matches({ tuning_or_speaking: 'tuning' }) && beat?.tune_to && (
         <RadioTuner
           targetFreq={resolveTuneTo(beat.tune_to)}
           targetLabel={beat.tune_label ?? ''}
           startFreq={currentFreq}
           onConfirmed={(freq) => {
             setCurrentFreq(freq)
-            if (beat.listen_only) {
-              // ATIS: after tuning, show "Tap to Listen" before audio plays
-              setLocalState('awaiting_listen')
-            } else {
-              // pilot_initiated: unlock PTT
-              setLocalState('idle')
-            }
+            send({ type: 'TUNED' })
           }}
         />
       )}
 
       {/* TAP TO LISTEN — ATIS only: student triggers ATIS broadcast manually */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.listen_only && localState === 'awaiting_listen' && (
+      {state.matches({ tuning_or_speaking: 'awaiting_listen' }) && (
         <TouchableOpacity
           className="mx-5 mb-3 rounded-2xl py-5 items-center"
           style={{ backgroundColor: 'rgba(111,227,255,0.08)', borderWidth: 1.5, borderColor: '#6FE3FF' }}
-          onPress={() => setLocalState('idle')}
+          onPress={() => send({ type: 'LISTEN_TAPPED' })}
         >
           <Text style={{ color: '#6FE3FF', fontSize: 22, marginBottom: 6 }}>📻</Text>
           <Text style={{ color: '#6FE3FF' }} className="font-bold text-base tracking-wide">TAP TO LISTEN TO ATIS</Text>
@@ -376,13 +345,14 @@ export default function HudScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Cue card — for pilot_initiated beats (shown after tuning complete) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && localState !== 'tuning' && localState !== 'awaiting_listen' && (
+      {/* Cue card — for pilot_initiated beats (shown during awaiting_response and atc_speaking) */}
+      {beat?.type === 'pilot_initiated'
+        && (state.matches({ tuning_or_speaking: 'awaiting_response' }) || state.matches({ tuning_or_speaking: 'atc_speaking' })) && (
         <View
           className="mx-5 mb-3 rounded-2xl p-4"
           style={{
             borderWidth: 1,
-            borderColor: state.value === 'awaiting_response' ? '#6FE3FF' : '#1C2548',
+            borderColor: state.matches({ tuning_or_speaking: 'awaiting_response' }) ? '#6FE3FF' : '#1C2548',
             backgroundColor: 'rgba(111,227,255,0.06)',
           }}
         >
@@ -415,7 +385,7 @@ export default function HudScreen() {
                   .replace(/{weather\.wind}/g, ctx.scenarioContext?.weather.wind ?? '')
               : 'Make your radio call.'}
           </Text>
-          {state.value === 'awaiting_response' && (
+          {state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
             <Text className="text-dim text-xs mt-2">Hold the mic button and transmit ↓</Text>
           )}
         </View>
@@ -464,18 +434,18 @@ export default function HudScreen() {
           </TouchableOpacity>
         )}
 
-        {asrError && state.value === 'awaiting_response' && (
+        {asrError && state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
           <Text className="text-danger text-xs text-center mb-2">⚠ {asrError}</Text>
         )}
       </View>
 
       {/* PTT Controls */}
-      {state.value === 'awaiting_response' && (
+      {state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
         <View className="flex-row px-5 gap-3 items-center justify-center">
           <TouchableOpacity
             className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
             onPress={handleSayAgain}
-            disabled={localState !== 'idle'}
+            disabled={recordingState !== 'idle'}
           >
             <Text className="text-accent text-xs font-bold">⟲ SAY AGAIN</Text>
           </TouchableOpacity>
@@ -491,14 +461,14 @@ export default function HudScreen() {
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 4,
-              backgroundColor: localState === 'recording'
+              backgroundColor: recordingState === 'recording'
                 ? '#FF5C5C'
-                : localState === 'processing'
+                : recordingState === 'processing'
                 ? '#FFB85C'
                 : isPTTEnabled ? '#5BE3A1' : '#1C2548',
-              borderColor: localState === 'recording'
+              borderColor: recordingState === 'recording'
                 ? 'rgba(255,92,92,0.4)'
-                : localState === 'processing'
+                : recordingState === 'processing'
                 ? 'rgba(255,184,92,0.4)'
                 : isPTTEnabled ? 'rgba(91,227,161,0.4)' : '#1C2548',
             })}
@@ -509,14 +479,14 @@ export default function HudScreen() {
               fontSize: 10,
               textAlign: 'center',
             }}>
-              {localState === 'recording' ? 'LISTENING\n…' : localState === 'processing' ? 'PROC\n…' : 'HOLD\nTALK'}
+              {recordingState === 'recording' ? 'LISTENING\n…' : recordingState === 'processing' ? 'PROC\n…' : 'HOLD\nTALK'}
             </Text>
           </Pressable>
 
           <TouchableOpacity
             className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
             onPress={handleShowTiles}
-            disabled={localState !== 'idle'}
+            disabled={recordingState !== 'idle'}
           >
             <Text className="text-warm text-xs font-bold">▦ TILES</Text>
           </TouchableOpacity>
