@@ -41,3 +41,26 @@ describe('normalizePhonetic', () => {
     expect(normalizePhonetic('')).toBe('')
   })
 })
+
+describe('frequency trailing-zero normalization (A13)', () => {
+  test('strips trailing zeros after decimal', () => {
+    expect(normalizePhonetic('119.800')).toBe('119.8')
+    expect(normalizePhonetic('118.10')).toBe('118.1')
+    expect(normalizePhonetic('125.350')).toBe('125.35')
+  })
+
+  test('preserves significant trailing zero before final non-zero digit', () => {
+    expect(normalizePhonetic('120.05')).toBe('120.05')
+    expect(normalizePhonetic('121.30')).toBe('121.3')
+  })
+
+  test('leaves non-frequency numbers untouched', () => {
+    expect(normalizePhonetic('4523')).toBe('4523')
+    expect(normalizePhonetic('runway 31')).toBe('runway 31')
+  })
+
+  test('handles spoken frequency variants identically', () => {
+    expect(normalizePhonetic('one one nine point eight zero zero')).toBe(normalizePhonetic('119.800'))
+    expect(normalizePhonetic('one one nine point eight')).toBe(normalizePhonetic('119.800'))
+  })
+})

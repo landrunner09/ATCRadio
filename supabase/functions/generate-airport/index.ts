@@ -575,7 +575,8 @@ Deno.serve(async (req: Request) => {
     approach_freq: approachFreq,
     atis_freq: airportData?.atis_freq ?? '120.6',
     approach_facility: approachFacility,
-    ctaf_freq: controlled ? undefined : (airportData?.atis_freq || '122.8'),
+    // CTAF defaults to 122.9 universal multicom — NEVER reuse ATIS freq (different service)
+    ctaf_freq: controlled ? undefined : '122.9',
     pattern_altitude_ft: 1000,
     runways,
     taxiways,

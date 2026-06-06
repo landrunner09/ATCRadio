@@ -32,3 +32,14 @@ test('approach_facility uses override when provided', () => {
   const ctx = generateScenarioContext(undefined, { approach_facility: 'NorCal Approach' })
   expect(ctx.approach_facility).toBe('NorCal Approach')
 })
+
+describe('randomSquawk exclusions (A11)', () => {
+  test('never returns 1200, 7000, 7500, 7600, or 7700 across many samples', () => {
+    const forbidden = new Set(['1200', '7000', '7500', '7600', '7700'])
+    // 10,000 iterations × 1/4096 chance of hitting any forbidden = high confidence
+    for (let i = 0; i < 10_000; i++) {
+      const ctx = generateScenarioContext()
+      expect(forbidden.has(ctx.squawk_code)).toBe(false)
+    }
+  })
+})

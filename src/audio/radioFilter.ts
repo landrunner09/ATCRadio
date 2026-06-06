@@ -38,44 +38,45 @@ export async function playWithRadioFilter(
   const source = ctx.createBufferSource()
   source.buffer = buffer
 
-  // High-pass at 300 Hz — cut low-end rumble
   const hp = ctx.createBiquadFilter()
-  hp.type = 'highpass'
-  hp.frequency.value = 300
-  hp.Q.value = 0.7
+  hp.type = 'highpass'; hp.frequency.value = 300; hp.Q.value = 0.7
 
-  // Low-pass at 3400 Hz — cut high-frequency hiss, match VHF radio bandwidth
   const lp = ctx.createBiquadFilter()
-  lp.type = 'lowpass'
-  lp.frequency.value = 3400
-  lp.Q.value = 0.7
+  lp.type = 'lowpass'; lp.frequency.value = 3400; lp.Q.value = 0.7
 
-  // Mild compressor for radio dynamics
   const comp = ctx.createDynamicsCompressor()
-  comp.threshold.value = -24
-  comp.knee.value = 8
-  comp.ratio.value = 6
-  comp.attack.value = 0.002
-  comp.release.value = 0.1
+  comp.threshold.value = -24; comp.knee.value = 8; comp.ratio.value = 6
+  comp.attack.value = 0.002; comp.release.value = 0.1
 
-  source.connect(hp)
-  hp.connect(lp)
-  lp.connect(comp)
-  comp.connect(ctx.destination)
+  source.connect(hp); hp.connect(lp); lp.connect(comp); comp.connect(ctx.destination)
 
   let ended = false
-  source.onended = () => {
+  const finish = () => {
     if (ended) return
     ended = true
+    clearTimeout(fallbackTimer)
     ctx.close()
     onEnd()
   }
+
+  source.onended = finish
   source.start()
+
+  // Fallback timer: some browsers swallow onended after source.stop().
+  // Close the context after expected duration + 200ms safety margin.
+  const fallbackTimer = setTimeout(finish, (buffer.duration * 1000) + 200)
 
   return () => {
     if (ended) return
-    ended = true
-    try { source.stop() } catch {}
-    ctx.close()
+    try { source.stop() } catch { /* already stopped */ }
+    // Don't close ctx immediately; let onended or the fallback timer close it.
+    // But if neither fires within 200ms, force close.
+    setTimeout(() => {
+      if (!ended) {
+        ended = true
+        clearTimeout(fallbackTimer)
+        ctx.close()
+      }
+    }, 200)
   }
 }

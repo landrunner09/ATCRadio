@@ -15,6 +15,8 @@ interface ScenarioMachineContext {
 type ScenarioEvent =
   | { type: 'START'; pack: ContentPack; scenarioContext: ScenarioContext }
   | { type: 'CONFIRM' }
+  | { type: 'TUNED' }
+  | { type: 'LISTEN_TAPPED' }
   | { type: 'ATC_DONE' }
   | { type: 'RESPOND'; transcript: string; confidence: number }
   | { type: 'SAY_AGAIN' }
@@ -53,6 +55,21 @@ function effectivelyPassed(grade: GradeResult | null): boolean {
   return grade.slotMatches.some(m => m.matched)
 }
 
+function beatHasTuneTo(ctx: ScenarioMachineContext): boolean {
+  const beat = currentBeat(ctx)
+  return !!beat?.tune_to
+}
+
+function beatIsListenOnly(ctx: ScenarioMachineContext): boolean {
+  const beat = currentBeat(ctx)
+  return !!beat?.listen_only
+}
+
+function beatIsPilotInitiated(ctx: ScenarioMachineContext): boolean {
+  const beat = currentBeat(ctx)
+  return beat?.type === 'pilot_initiated'
+}
+
 function makeAttemptRecord(
   ctx: ScenarioMachineContext,
   result: AttemptRecord['result'],
@@ -85,128 +102,195 @@ export const scenarioMachine = createMachine(
     states: {
       idle: {
         on: {
-          START: {
-            target: 'preflight',
-            actions: assign({
-              pack: ({ event }) => event.pack,
-              scenarioContext: ({ event }) => event.scenarioContext,
-              beatIndex: 0,
-              retryCount: 0,
-              attempts: [],
-              lastGradeResult: null,
-            }),
-          },
-        },
-      },
-
-      preflight: {
-        on: {
-          CONFIRM: { target: 'atc_speaking' },
-        },
-      },
-
-      atc_speaking: {
-        on: {
-          ATC_DONE: { target: 'awaiting_response' },
-        },
-      },
-
-      awaiting_response: {
-        on: {
-          SAY_AGAIN: { target: 'atc_speaking' },
-          SHOW_TILES: { target: 'scaffold' },
-          RESPOND: [
-            // Passed + last beat → debrief
+          START: [
+            // Defensive: empty beats array → jump straight to debrief (drill mode with no selection, etc.)
             {
-              guard: ({ context, event }) => {
-                if (event.type !== 'RESPOND') return false
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return effectivelyPassed(grade) && isLastBeat(context)
-              },
+              guard: ({ event }) => event.type === 'START' && (event.pack?.beats?.length ?? 0) === 0,
               target: 'debrief',
-              actions: assign(({ context, event }) => {
-                if (event.type !== 'RESPOND') return {}
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return {
-                  lastGradeResult: grade,
-                  attempts: makeAttemptRecord(context, 'pass', grade),
-                }
+              actions: assign({
+                pack: ({ event }) => event.type === 'START' ? event.pack : null,
+                scenarioContext: ({ event }) => event.type === 'START' ? event.scenarioContext : null,
+                beatIndex: 0,
+                retryCount: 0,
+                attempts: [],
+                lastGradeResult: null,
               }),
             },
-            // Passed → next beat
+            // Normal path
             {
-              guard: ({ context, event }) => {
-                if (event.type !== 'RESPOND') return false
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return effectivelyPassed(grade)
-              },
-              target: 'atc_speaking',
-              actions: assign(({ context, event }) => {
-                if (event.type !== 'RESPOND') return {}
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return {
-                  beatIndex: context.beatIndex + 1,
-                  retryCount: 0,
-                  lastGradeResult: grade,
-                  attempts: makeAttemptRecord(context, 'pass', grade),
-                }
-              }),
-            },
-            // Failed, retries remaining → retry
-            {
-              guard: ({ context, event }) => {
-                if (event.type !== 'RESPOND') return false
-                const grade = runGrader(context, event.transcript, event.confidence)
-                const beat = currentBeat(context)
-                return !effectivelyPassed(grade) && context.retryCount < (beat?.on_partial.max_retries ?? 2)
-              },
-              target: 'atc_speaking',
-              actions: assign(({ context, event }) => {
-                if (event.type !== 'RESPOND') return {}
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return {
-                  retryCount: context.retryCount + 1,
-                  lastGradeResult: grade,
-                  attempts: makeAttemptRecord(context, 'partial', grade),
-                }
-              }),
-            },
-            // Failed, no retries → scaffold
-            {
-              target: 'scaffold',
-              actions: assign(({ context, event }) => {
-                if (event.type !== 'RESPOND') return {}
-                const grade = runGrader(context, event.transcript, event.confidence)
-                return {
-                  retryCount: 0,
-                  lastGradeResult: grade,
-                  attempts: makeAttemptRecord(context, 'fail', grade),
-                }
+              target: 'preflight',
+              actions: assign({
+                pack: ({ event }) => event.type === 'START' ? event.pack : null,
+                scenarioContext: ({ event }) => event.type === 'START' ? event.scenarioContext : null,
+                beatIndex: 0,
+                retryCount: 0,
+                attempts: [],
+                lastGradeResult: null,
               }),
             },
           ],
         },
       },
 
+      preflight: {
+        on: {
+          CONFIRM: { target: 'tuning_or_speaking' },
+        },
+      },
+
+      tuning_or_speaking: {
+        initial: 'gate',
+        states: {
+          gate: {
+            always: [
+              { guard: ({ context }) => beatHasTuneTo(context), target: 'tuning' },
+              { guard: ({ context }) => beatIsListenOnly(context), target: 'atc_speaking' },
+              { guard: ({ context }) => beatIsPilotInitiated(context), target: 'awaiting_response' },
+              { target: 'atc_speaking' },
+            ],
+          },
+
+          tuning: {
+            on: {
+              TUNED: [
+                { guard: ({ context }) => beatIsListenOnly(context), target: 'awaiting_listen' },
+                { guard: ({ context }) => beatIsPilotInitiated(context), target: 'awaiting_response' },
+                { target: 'atc_speaking' },
+              ],
+            },
+          },
+
+          awaiting_listen: {
+            on: {
+              LISTEN_TAPPED: { target: 'atc_speaking' },
+            },
+          },
+
+          atc_speaking: {
+            on: {
+              ATC_DONE: [
+                {
+                  guard: ({ context }) => beatIsListenOnly(context) && isLastBeat(context),
+                  target: '#scenario.debrief',
+                  actions: assign({
+                    attempts: ({ context }) => makeAttemptRecord(context, 'pass', null),
+                  }),
+                },
+                {
+                  guard: ({ context }) => beatIsListenOnly(context),
+                  target: 'gate',
+                  actions: assign({
+                    beatIndex: ({ context }) => context.beatIndex + 1,
+                    retryCount: 0,
+                    attempts: ({ context }) => makeAttemptRecord(context, 'pass', null),
+                  }),
+                },
+                { target: 'awaiting_response' },
+              ],
+            },
+          },
+
+          awaiting_response: {
+            on: {
+              SAY_AGAIN: { target: 'atc_speaking' },
+              SHOW_TILES: { target: '#scenario.scaffold' },
+              RESPOND: [
+                // Empty transcript / no speech: stay put, do not consume retry (A7)
+                {
+                  guard: ({ event }) => event.type === 'RESPOND' && !event.transcript.trim(),
+                  target: 'awaiting_response',
+                },
+                // Pass + last beat → debrief
+                {
+                  guard: ({ context, event }) => {
+                    if (event.type !== 'RESPOND') return false
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return effectivelyPassed(grade) && isLastBeat(context)
+                  },
+                  target: '#scenario.debrief',
+                  actions: assign(({ context, event }) => {
+                    if (event.type !== 'RESPOND') return {}
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return {
+                      lastGradeResult: grade,
+                      attempts: makeAttemptRecord(context, 'pass', grade),
+                    }
+                  }),
+                },
+                // Pass → next beat
+                {
+                  guard: ({ context, event }) => {
+                    if (event.type !== 'RESPOND') return false
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return effectivelyPassed(grade)
+                  },
+                  target: 'gate',
+                  actions: assign(({ context, event }) => {
+                    if (event.type !== 'RESPOND') return {}
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return {
+                      beatIndex: context.beatIndex + 1,
+                      retryCount: 0,
+                      lastGradeResult: grade,
+                      attempts: makeAttemptRecord(context, 'pass', grade),
+                    }
+                  }),
+                },
+                // Fail with retries remaining → re-speak the beat
+                {
+                  guard: ({ context, event }) => {
+                    if (event.type !== 'RESPOND') return false
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    const beat = currentBeat(context)
+                    return !effectivelyPassed(grade) && context.retryCount < (beat?.on_partial.max_retries ?? 2)
+                  },
+                  target: 'atc_speaking',
+                  actions: assign(({ context, event }) => {
+                    if (event.type !== 'RESPOND') return {}
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return {
+                      retryCount: context.retryCount + 1,
+                      lastGradeResult: grade,
+                      attempts: makeAttemptRecord(context, 'partial', grade),
+                    }
+                  }),
+                },
+                // Out of retries → scaffold
+                {
+                  target: '#scenario.scaffold',
+                  actions: assign(({ context, event }) => {
+                    if (event.type !== 'RESPOND') return {}
+                    const grade = runGrader(context, event.transcript, event.confidence)
+                    return {
+                      retryCount: 0,
+                      lastGradeResult: grade,
+                      attempts: makeAttemptRecord(context, 'fail', grade),
+                    }
+                  }),
+                },
+              ],
+            },
+          },
+        },
+      },
+
       scaffold: {
         on: {
           SCAFFOLD_PASS: [
-            // Last beat → debrief
             {
               guard: ({ context }) => isLastBeat(context),
               target: 'debrief',
-              actions: assign(({ context }) => ({
-                attempts: makeAttemptRecord(context, 'scaffold', null),
-              })),
+              actions: assign({
+                attempts: ({ context }) => makeAttemptRecord(context, 'scaffold', context.lastGradeResult),
+              }),
             },
-            // Not last beat → advance
             {
-              target: 'atc_speaking',
-              actions: assign(({ context }) => ({
-                beatIndex: context.beatIndex + 1,
+              target: 'tuning_or_speaking',
+              actions: assign({
+                beatIndex: ({ context }) => context.beatIndex + 1,
                 retryCount: 0,
-                attempts: makeAttemptRecord(context, 'scaffold', null),
-              })),
+                attempts: ({ context }) => makeAttemptRecord(context, 'scaffold', context.lastGradeResult),
+              }),
             },
           ],
         },

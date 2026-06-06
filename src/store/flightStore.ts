@@ -16,6 +16,8 @@ interface FlightStore {
   runId: string | null
   masterySnapshot: Record<string, number>
   sessionNewBadges: BadgeId[]
+  // Internal — promises from pending saveAttempt calls
+  pendingAttempts: Promise<void>[]
 
   startRun: (pack: ContentPack, ctx: ScenarioContext, userId: string | null) => Promise<void>
   addAttempt: (attempt: AttemptRecord) => void
@@ -41,9 +43,10 @@ export const useFlightStore = create<FlightStore>((set, get) => ({
   masterySnapshot: {},
 
   sessionNewBadges: [],
+  pendingAttempts: [],
 
   startRun: async (pack, ctx, userId) => {
-    set({ pack, scenarioContext: ctx, attempts: [], isRunActive: true, runId: null, masterySnapshot: {}, sessionNewBadges: [] })
+    set({ pack, scenarioContext: ctx, attempts: [], isRunActive: true, runId: null, masterySnapshot: {}, sessionNewBadges: [], pendingAttempts: [] })
 
     if (!userId) return
 
@@ -71,12 +74,23 @@ export const useFlightStore = create<FlightStore>((set, get) => ({
   addAttempt: (attempt) => {
     set(state => ({ attempts: [...state.attempts, attempt] }))
     const { runId } = get()
-    if (runId) saveAttempt(runId, attempt)
+    if (runId) {
+      // Track the promise so endRun can await it before closeRun.
+      // Use functional set to avoid the get/set race when two attempts fire in the same tick.
+      const p = saveAttempt(runId, attempt).catch(e => {
+        console.warn('[flightStore] saveAttempt failed:', e)
+      })
+      set(state => ({ pendingAttempts: [...state.pendingAttempts, p] }))
+    }
   },
 
   endRun: async () => {
-    const { runId, getScore } = get()
+    const { runId, getScore, pendingAttempts } = get()
     set({ isRunActive: false })
+    // Wait for all in-flight saveAttempt calls before closing the run
+    if (pendingAttempts.length > 0) {
+      await Promise.allSettled(pendingAttempts)
+    }
     if (runId) await closeRun(runId, getScore())
   },
 

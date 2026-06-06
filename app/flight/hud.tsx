@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { View, Text, TouchableOpacity, Pressable, Platform } from 'react-native'
+import { View, Text, TouchableOpacity, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useMachine } from '@xstate/react'
 import { scenarioMachine } from '@/engine/machine'
@@ -14,12 +14,18 @@ import { useTTSPlayer, prefetchTTSBatch } from '@/audio/useTTSPlayer'
 import { useASRRecorder } from '@/audio/useASRRecorder'
 import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
-import { RadioTuner } from '@/components/RadioTuner'
+import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
+import { TunerCard } from '@/components/hud/TunerCard'
+import { PhasePips } from '@/components/hud/PhasePips'
+import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
+import { ListenCard } from '@/components/hud/ListenCard'
+import { ATCCard } from '@/components/hud/ATCCard'
+import { CueCard } from '@/components/hud/CueCard'
+import { ScaffoldPanel } from '@/components/hud/ScaffoldPanel'
+import { PTTBar } from '@/components/hud/PTTBar'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
-
-type LocalState = 'idle' | 'tuning' | 'awaiting_listen' | 'recording' | 'processing'
 
 export default function HudScreen() {
   const router = useRouter()
@@ -32,7 +38,7 @@ export default function HudScreen() {
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
 
-  const { startRun, endRun, addAttempt, tailNumber, setSessionNewBadges } = useFlightStore()
+  const { startRun, endRun, addAttempt, setSessionNewBadges } = useFlightStore()
   const { mode, selectedBeatIds } = useDrillStore()
   const { user } = useAuthStore()
   const { selectedIcao, customPacks, arrivalPacks, selectedScenarioType } = useAirportStore()
@@ -40,20 +46,16 @@ export default function HudScreen() {
   const { streak } = useStats(user?.id ?? null)
   const { checkAndAward } = useBadges(user?.id ?? null)
 
-  // ── Derived values that depend on each other — declaration ORDER matters ──
-  // All must come AFTER every hook call above to avoid TDZ crashes.
+  // Pack and voice are derived from store state; declared after all hook calls.
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
     : getPack(selectedIcao, customPacks)
 
   const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
-  // localState: initialise to 'tuning' if the ATIS (first) beat requires a freq change.
-  // In drill mode, the effect below immediately corrects this if the first drill beat
-  // has no tune_to (e.g. HOLD_SHORT) — the one-frame correction is imperceptible.
-  const [localState, setLocalState] = useState<LocalState>(() =>
-    FULL_PACK.beats[0]?.tune_to ? 'tuning' : 'idle'
-  )
+  // PTT recording phase — separate concern from the scenario flow machine.
+  // Resets to 'idle' on each PTT release; never reaches the XState machine.
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle')
 
   // Initialised to a "wrong" starting freq so ATIS requires the student to tune.
   const [currentFreq, setCurrentFreq] = useState(() =>
@@ -82,7 +84,7 @@ export default function HudScreen() {
     [ctx.beatIndex, !!ctx.pack, !!ctx.scenarioContext],
   )
 
-  const { play: playTTS, replay: replayTTS, prefetch: prefetchTTS } = useTTSPlayer({
+  const { play: playTTS } = useTTSPlayer({
     text: atcLine,
     voiceName: voice.name,
     instructions: voice.instructions,
@@ -99,7 +101,7 @@ export default function HudScreen() {
     onEnd: useCallback(() => {}, []),
   })
 
-  const { isRecording, startRecording, stopRecording } = useASRRecorder()
+  const { startRecording, stopRecording } = useASRRecorder()
   const pttHandlingRef = useRef(false)
   const debriefFiredRef = useRef(false)
   const ambienceRef = useRef<RadioAmbienceSession | null>(null)
@@ -149,48 +151,16 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
-  // Drive localState from machine state + beat shape.
-  // Called on every beat/state change — always resolves to the correct state.
-  useEffect(() => {
-    const activeState = state.value === 'atc_speaking' || state.value === 'awaiting_response'
-    if (!activeState || !beat) return
-
-    if (beat.tune_to) {
-      // Beat requires frequency change → show tuner
-      setLocalState('tuning')
-    } else {
-      // No tuning required (readback, drill-started mid-scenario, etc.) → unlock immediately.
-      // This also corrects the 'tuning' initial value when drill starts on a non-tune beat.
-      setLocalState('idle')
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, ctx.beatIndex])
-
   // Prefetch next beat's TTS while the user is responding (hides API latency)
   useEffect(() => {
-    if (state.value !== 'awaiting_response' || !nextAtcLine) return
+    if (!state.matches({ tuning_or_speaking: 'awaiting_response' }) || !nextAtcLine) return
     prefetchNextTTS()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.value, nextAtcLine])
 
-  // listen_only beats (ATIS): auto-advance after student manually triggers playback
-  // Machine enters awaiting_response → we immediately advance (no grading needed)
+  // When machine enters atc_speaking sub-state, play TTS
   useEffect(() => {
-    if (state.value !== 'awaiting_response' || !beat?.listen_only) return
-    send({ type: 'RESPOND', transcript: '__listen_only__', confidence: 1 })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, ctx.beatIndex])
-
-  // When machine enters atc_speaking, play TTS.
-  // For beats with tune_to, playback is gated: tuning → awaiting_listen → idle → play.
-  useEffect(() => {
-    if (state.value !== 'atc_speaking') return
-    if (beat?.type === 'pilot_initiated') {
-      send({ type: 'ATC_DONE' })
-      return
-    }
-    // Gate behind tuner and manual "tap to listen" if required
-    if (localState === 'tuning' || localState === 'awaiting_listen') return
+    if (!state.matches({ tuning_or_speaking: 'atc_speaking' })) return
     setTtsError(null)
     playTTS().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -199,13 +169,13 @@ export default function HudScreen() {
       send({ type: 'ATC_DONE' })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, atcLine, localState])
+  }, [state.value, atcLine])
 
   // Start radio static during student response window; stop when ATC speaks or recording
   useEffect(() => {
     const s = ambienceRef.current
     if (!s) return
-    if (state.value === 'awaiting_response') {
+    if (state.matches({ tuning_or_speaking: 'awaiting_response' })) {
       s.start()
     } else {
       s.stop()
@@ -216,14 +186,14 @@ export default function HudScreen() {
     if (pttHandlingRef.current) return
     pttHandlingRef.current = true
     setAsrError(null)
-    setLocalState('recording')
+    setRecordingState('recording')
     await startRecording()
   }, [startRecording])
 
   const handlePTTRelease = useCallback(async () => {
-    setLocalState('processing')
+    setRecordingState('processing')
     const result = await stopRecording()
-    setLocalState('idle')
+    setRecordingState('idle')
     pttHandlingRef.current = false
 
     if (!result.transcript) {
@@ -265,52 +235,48 @@ export default function HudScreen() {
 
   const phaseIndex = beat ? pack.beats.findIndex(b => b.id === beat.id) : 0
 
-  const isPTTEnabled = state.value === 'awaiting_response' && localState === 'idle'
-  const isAtcSpeaking = state.value === 'atc_speaking'
+  const isPTTEnabled = state.matches({ tuning_or_speaking: 'awaiting_response' }) && recordingState === 'idle'
+
+  const speakerLabel = beat
+    ? beat.speaker === 'approach'
+      ? (ctx.scenarioContext?.approach_facility ?? 'Approach')
+      : beat.speaker === 'ground'
+        ? `${pack.airport_icao} Ground`
+        : `${pack.airport_icao} Tower`
+    : ''
+  const freqLabel = beat
+    ? beat.speaker === 'approach' ? FULL_PACK.approach_freq
+      : beat.speaker === 'ground' ? ((FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
+      : FULL_PACK.tower_freq
+    : ''
+
+  const chipStatus: SkillChipStatus =
+    beat?.listen_only && state.matches({ tuning_or_speaking: 'tuning' }) ? 'tune_atis'
+    : beat?.listen_only && state.matches({ tuning_or_speaking: 'awaiting_listen' }) ? 'tap_listen'
+    : beat?.listen_only ? 'listening'
+    : state.matches({ tuning_or_speaking: 'tuning' }) ? 'tune_radio'
+    : beat?.type === 'pilot_initiated' ? 'pilot_call'
+    : state.matches({ tuning_or_speaking: 'atc_speaking' }) ? 'atc_speaking'
+    : 'grading'
 
   return (
     <View className="flex-1 bg-bg">
-      {/* Status bar */}
-      <View className="flex-row justify-between px-5 pt-14 pb-2 border-b border-line">
-        <Text className="text-dim text-xs font-mono uppercase tracking-widest">
-          {ctx.scenarioContext?.callsign ?? '—'} · {pack.airport_icao} {mode === 'drill' ? '· DRILL' : ''}
-        </Text>
-        <Text className="text-dim text-xs font-mono">
-          {'COM1 '}{currentFreq} · {ctx.scenarioContext?.weather.wind ?? '—'}
-        </Text>
-      </View>
+      <HudStatusBar
+        callsign={ctx.scenarioContext?.callsign ?? ''}
+        airportIcao={pack.airport_icao}
+        drillMode={mode === 'drill'}
+        currentFreq={currentFreq}
+        wind={ctx.scenarioContext?.weather.wind ?? ''}
+      />
 
-      {/* Phase pips */}
-      <View className="flex-row items-center px-5 py-3 gap-3">
-        <View className="flex-1 flex-row gap-1">
-          {pack.beats.map((_, i) => (
-            <View
-              key={i}
-              className={`flex-1 h-1.5 rounded-full ${
-                i < phaseIndex ? 'bg-go' : i === phaseIndex ? 'bg-accent' : 'bg-line'
-              }`}
-            />
-          ))}
-        </View>
-        <Text className="text-dim text-xs font-bold uppercase tracking-wider">
-          {String(phaseIndex + 1).padStart(2, '0')} · {beat?.phase ?? '—'}
-        </Text>
-      </View>
+      <PhasePips
+        beatCount={pack.beats.length}
+        currentIndex={phaseIndex}
+        phaseLabel={beat?.phase ?? ''}
+      />
 
-      {/* Skill chip — label reflects current operation so user always knows what to do */}
       {beat && state.value !== 'preflight' && (
-        <View className="mx-5 mb-3 px-3 py-2 bg-surface2 rounded-xl border border-line flex-row justify-between items-center">
-          <Text className="text-muted text-xs uppercase tracking-widest">
-            {beat.listen_only && localState === 'tuning'   ? '📻 Tune to ATIS'
-           : beat.listen_only && localState === 'awaiting_listen' ? '📻 Tap to Listen'
-           : beat.listen_only                              ? '📻 Listening…'
-           : localState === 'tuning'                       ? '📡 Tune Radio'
-           : beat.type === 'pilot_initiated'               ? '🎙 Your Call'
-           : state.value === 'atc_speaking'                ? '📣 ATC Speaking'
-           : 'Now Grading'}
-          </Text>
-          <Text className="text-accent text-xs font-semibold">{beat.skill_tag.replace(/_/g, ' ').toUpperCase()}</Text>
-        </View>
+        <SkillChip beat={beat} status={chipStatus} />
       )}
 
       {/* Airport diagram */}
@@ -318,141 +284,55 @@ export default function HudScreen() {
         <AirportDiagram pack={pack} beatId={beat?.id} />
       </View>
 
-      {/* ATC card — hidden while tuning/awaiting (don't spoil ATIS before student tunes) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat && beat.type !== 'pilot_initiated'
-        && localState !== 'tuning' && localState !== 'awaiting_listen' && (
-        <View className="mx-5 mb-3 bg-surface2 rounded-2xl border border-line p-4">
-          <View className="flex-row justify-between items-center mb-2">
-            <View className="flex-row items-center gap-2">
-              {isAtcSpeaking && <View className="w-2 h-2 rounded-full bg-warm" />}
-              <Text className="text-warm text-xs font-bold uppercase tracking-widest">
-                {beat.speaker === 'approach'
-                  ? (beat.voice_role === 'norcal_approach' ? 'NorCal Approach' : 'Approach')
-                  : `${pack.airport_icao} Tower`}
-              </Text>
-              {isAtcSpeaking && <Text className="text-dim text-xs">speaking…</Text>}
-            </View>
-            <Text className="text-muted text-xs font-mono">
-              {beat.speaker === 'approach' ? FULL_PACK.approach_freq : FULL_PACK.tower_freq}
-            </Text>
-          </View>
-          {ttsError && (
-            <Text className="text-danger text-xs mb-1">⚠ {ttsError}</Text>
-          )}
-          <Text style={{ color: '#e7ecf5' }} className="text-sm font-mono leading-relaxed">{atcLine}</Text>
-        </View>
+      {beat
+        && beat.type !== 'pilot_initiated'
+        && state.matches({ tuning_or_speaking: 'atc_speaking' }) && (
+        <ATCCard
+          beat={beat}
+          atcLine={atcLine}
+          speakerLabel={speakerLabel}
+          freqLabel={freqLabel}
+          isSpeaking={state.matches({ tuning_or_speaking: 'atc_speaking' })}
+          ttsError={ttsError}
+        />
       )}
 
-
-      {/* Radio tuner — shown on any beat with tune_to (ATIS, pilot-initiated, etc.) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.tune_to && localState === 'tuning' && (
-        <RadioTuner
+      {state.matches({ tuning_or_speaking: 'tuning' }) && beat?.tune_to && (
+        <TunerCard
           targetFreq={resolveTuneTo(beat.tune_to)}
           targetLabel={beat.tune_label ?? ''}
           startFreq={currentFreq}
           onConfirmed={(freq) => {
             setCurrentFreq(freq)
-            if (beat.listen_only) {
-              // ATIS: after tuning, show "Tap to Listen" before audio plays
-              setLocalState('awaiting_listen')
-            } else {
-              // pilot_initiated: unlock PTT
-              setLocalState('idle')
-            }
+            send({ type: 'TUNED' })
           }}
         />
       )}
 
-      {/* TAP TO LISTEN — ATIS only: student triggers ATIS broadcast manually */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.listen_only && localState === 'awaiting_listen' && (
-        <TouchableOpacity
-          className="mx-5 mb-3 rounded-2xl py-5 items-center"
-          style={{ backgroundColor: 'rgba(111,227,255,0.08)', borderWidth: 1.5, borderColor: '#6FE3FF' }}
-          onPress={() => setLocalState('idle')}
-        >
-          <Text style={{ color: '#6FE3FF', fontSize: 22, marginBottom: 6 }}>📻</Text>
-          <Text style={{ color: '#6FE3FF' }} className="font-bold text-base tracking-wide">TAP TO LISTEN TO ATIS</Text>
-          <Text className="text-dim text-xs mt-1">Listen carefully — note the ATIS letter, runway and altimeter</Text>
-        </TouchableOpacity>
+      {state.matches({ tuning_or_speaking: 'awaiting_listen' }) && (
+        <ListenCard onTap={() => send({ type: 'LISTEN_TAPPED' })} />
       )}
 
-      {/* Cue card — for pilot_initiated beats (shown after tuning complete) */}
-      {state.value !== 'preflight' && state.value !== 'idle' && beat?.type === 'pilot_initiated' && localState !== 'tuning' && localState !== 'awaiting_listen' && (
-        <View
-          className="mx-5 mb-3 rounded-2xl p-4"
-          style={{
-            borderWidth: 1,
-            borderColor: state.value === 'awaiting_response' ? '#6FE3FF' : '#1C2548',
-            backgroundColor: 'rgba(111,227,255,0.06)',
-          }}
-        >
-          {/* Show the tuned frequency */}
-          {beat.tune_to && (
-            <View className="flex-row items-center gap-2 mb-3 pb-2" style={{ borderBottomWidth: 1, borderColor: '#1C2548' }}>
-              <View className="w-2 h-2 rounded-full bg-go" />
-              <Text className="text-go text-xs font-mono font-bold">{currentFreq} MHz</Text>
-              <Text className="text-muted text-xs">· {beat.tune_label}</Text>
-            </View>
-          )}
-          <Text className="text-accent text-xs font-bold uppercase tracking-widest mb-2">
-            🎙 YOUR TRANSMISSION
-          </Text>
-          <Text style={{ color: '#e7ecf5' }} className="text-sm leading-relaxed">
-            {beat.cue_text
-              ? beat.cue_text
-                  .replace(/{approach_facility}/g, ctx.scenarioContext?.approach_facility ?? 'Approach')
-                  .replace(/{airport_icao}/g, pack.airport_icao)
-                  .replace(/{airport_name}/g, FULL_PACK.airport_name)
-                  .replace(/{callsign}/g, ctx.scenarioContext?.callsign ?? '')
-                  .replace(/{runway}/g, ctx.scenarioContext?.runway_in_use ?? '')
-                  .replace(/{taxiway}/g, ctx.scenarioContext?.departure_taxiway ?? '')
-                  .replace(/{atis_letter}/g, ctx.scenarioContext?.atis_letter ?? '')
-                  .replace(/{tower_freq}/g, FULL_PACK.tower_freq)
-                  .replace(/{approach_freq}/g, FULL_PACK.approach_freq)
-                  .replace(/{ground_freq}/g, (FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
-                  .replace(/{squawk_code}/g, ctx.scenarioContext?.squawk_code ?? '')
-                  .replace(/{weather\.altimeter}/g, ctx.scenarioContext?.weather.altimeter ?? '')
-                  .replace(/{weather\.wind}/g, ctx.scenarioContext?.weather.wind ?? '')
-              : 'Make your radio call.'}
-          </Text>
-          {state.value === 'awaiting_response' && (
-            <Text className="text-dim text-xs mt-2">Hold the mic button and transmit ↓</Text>
-          )}
-        </View>
+      {beat?.type === 'pilot_initiated'
+        && (state.matches({ tuning_or_speaking: 'awaiting_response' }) || state.matches({ tuning_or_speaking: 'atc_speaking' }))
+        && (
+        <CueCard
+          beat={beat}
+          pack={FULL_PACK}
+          scenarioContext={ctx.scenarioContext}
+          currentFreq={currentFreq}
+          awaitingResponse={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+        />
       )}
 
-      {/* Student response area */}
       <View className="mx-5 mb-4">
         {state.value === 'scaffold' && beat && (
-          <View className="bg-surface2 rounded-2xl p-4" style={{ borderWidth: 1, borderColor: '#FFB85C' }}>
-            <Text className="text-warm text-xs font-bold uppercase tracking-widest mb-3">▦ Scaffold mode</Text>
-            {beat.expected_student_response.required_slots.map(slot => (
-              <View key={slot.slot} className="flex-row items-center gap-2 mb-2">
-                <View className={`w-2 h-2 rounded-full ${slot.criticality === 'critical' ? 'bg-danger' : 'bg-dim'}`} />
-                <Text className="text-dim text-xs uppercase tracking-widest">{slot.slot}:</Text>
-                <Text style={{ color: '#e7ecf5' }} className="text-xs font-mono">
-                  {slot.value
-                    .replace('{runway}', ctx.scenarioContext?.runway_in_use ?? '31')
-                    .replace('{callsign}', ctx.scenarioContext?.callsign ?? 'N12345')
-                    .replace('{taxiway}', ctx.scenarioContext?.departure_taxiway ?? 'alpha')
-                    .replace('{atis_letter}', ctx.scenarioContext?.atis_letter ?? 'Bravo')
-                    .replace('{altimeter}', ctx.scenarioContext?.weather.altimeter ?? '29.92')
-                    .replace('{approach_freq}', FULL_PACK.approach_freq)
-                    .replace('{tower_freq}', FULL_PACK.tower_freq)
-                    .replace('{squawk_code}', ctx.scenarioContext?.squawk_code ?? '4523')
-                    .replace('{approach_facility}', ctx.scenarioContext?.approach_facility ?? 'Approach')
-                    .replace('{airport_name}', FULL_PACK.airport_name)
-                  }
-                </Text>
-              </View>
-            ))}
-            <TouchableOpacity
-              className="bg-warm rounded-xl py-3 mt-3 items-center"
-              onPress={handleScaffoldPass}
-            >
-              <Text className="text-bg font-bold text-sm">I'VE GOT IT →</Text>
-            </TouchableOpacity>
-          </View>
+          <ScaffoldPanel
+            beat={beat}
+            pack={FULL_PACK}
+            scenarioContext={ctx.scenarioContext}
+            onPass={handleScaffoldPass}
+          />
         )}
 
         {state.value === 'preflight' && (
@@ -463,65 +343,20 @@ export default function HudScreen() {
             <Text className="text-bg font-bold text-base">BEGIN SCENARIO →</Text>
           </TouchableOpacity>
         )}
-
-        {asrError && state.value === 'awaiting_response' && (
-          <Text className="text-danger text-xs text-center mb-2">⚠ {asrError}</Text>
-        )}
       </View>
 
-      {/* PTT Controls */}
-      {state.value === 'awaiting_response' && (
-        <View className="flex-row px-5 gap-3 items-center justify-center">
-          <TouchableOpacity
-            className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
-            onPress={handleSayAgain}
-            disabled={localState !== 'idle'}
-          >
-            <Text className="text-accent text-xs font-bold">⟲ SAY AGAIN</Text>
-          </TouchableOpacity>
-
-          <Pressable
-            onPressIn={handlePTTPress}
-            onPressOut={handlePTTRelease}
-            disabled={!isPTTEnabled}
-            style={({ pressed }) => ({
-              width: 80,
-              height: 80,
-              borderRadius: 40,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 4,
-              backgroundColor: localState === 'recording'
-                ? '#FF5C5C'
-                : localState === 'processing'
-                ? '#FFB85C'
-                : isPTTEnabled ? '#5BE3A1' : '#1C2548',
-              borderColor: localState === 'recording'
-                ? 'rgba(255,92,92,0.4)'
-                : localState === 'processing'
-                ? 'rgba(255,184,92,0.4)'
-                : isPTTEnabled ? 'rgba(91,227,161,0.4)' : '#1C2548',
-            })}
-          >
-            <Text style={{
-              color: '#0B0F1E',
-              fontWeight: '800',
-              fontSize: 10,
-              textAlign: 'center',
-            }}>
-              {localState === 'recording' ? 'LISTENING\n…' : localState === 'processing' ? 'PROC\n…' : 'HOLD\nTALK'}
-            </Text>
-          </Pressable>
-
-          <TouchableOpacity
-            className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
-            onPress={handleShowTiles}
-            disabled={localState !== 'idle'}
-          >
-            <Text className="text-warm text-xs font-bold">▦ TILES</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      <PTTBar
+        enabled={isPTTEnabled}
+        recording={recordingState === 'recording'}
+        processing={recordingState === 'processing'}
+        asrError={state.matches({ tuning_or_speaking: 'awaiting_response' }) ? asrError : null}
+        onPressIn={handlePTTPress}
+        onPressOut={handlePTTRelease}
+        onSayAgain={handleSayAgain}
+        onShowTiles={handleShowTiles}
+        showSayAgain={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+        showTiles={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+      />
     </View>
   )
 }

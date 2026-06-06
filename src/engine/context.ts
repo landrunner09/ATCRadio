@@ -22,9 +22,15 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
-/** Random 4-digit octal squawk code, excluding reserved codes 7500/7600/7700. */
+/** Random 4-digit octal squawk code, excluding reserved codes. */
 function randomSquawk(): string {
-  const forbidden = new Set(['7500', '7600', '7700'])
+  // Reserved codes that ATC never assigns for flight following:
+  //   1200 — VFR squawk (default)
+  //   7000 — CTAF / advisory non-radar
+  //   7500 — hijack
+  //   7600 — lost comms
+  //   7700 — emergency
+  const forbidden = new Set(['1200', '7000', '7500', '7600', '7700'])
   let code: string
   do {
     code = Array.from({ length: 4 }, () => Math.floor(Math.random() * 8)).join('')

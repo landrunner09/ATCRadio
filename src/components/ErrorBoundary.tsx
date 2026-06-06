@@ -7,7 +7,7 @@ interface State { error: Error | null; componentStack: string | null; errorCount
 const TDZ_HINT = 'This is usually caused by a stale cached pack. Clearing app data and re-adding your airports should fix it.'
 const GENERIC_HINT = 'If this keeps happening, try refreshing the page.'
 
-function classifyError(msg: string): { title: string; hint: string; canRetry: boolean } {
+export function classifyError(msg: string): { title: string; hint: string; canRetry: boolean } {
   const m = msg.toLowerCase()
 
   if (m.includes('before initialization') || m.includes('tdz') || m.includes('cannot access')) {
