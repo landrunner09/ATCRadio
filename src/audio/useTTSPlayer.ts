@@ -3,6 +3,7 @@ import { Platform } from 'react-native'
 import { Audio } from 'expo-av'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { playWithRadioFilter } from './radioFilter'
+import { dedupeFetch } from './ttsDedup'
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
@@ -65,38 +66,41 @@ async function fetchTTSUrl(text: string, voiceName: string, instructions: string
   const cached = urlCache.get(key)
   if (cached) return cached
 
-  const ttsUrl = `${SUPABASE_URL}/functions/v1/tts`
-  const body = JSON.stringify({ text: normalizeText(text), voiceName, instructions })
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  }
+  // Dedup concurrent network calls for the same key
+  return dedupeFetch(key, async () => {
+    const ttsUrl = `${SUPABASE_URL}/functions/v1/tts`
+    const body = JSON.stringify({ text: normalizeText(text), voiceName, instructions })
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    }
 
-  let lastErr: unknown
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, 1500))
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30_000)
-    let res: Response
-    try {
-      res = await fetch(ttsUrl, { method: 'POST', headers, body, signal: controller.signal })
-    } catch (fetchErr) {
-      lastErr = new Error(`fetch→${ttsUrl}: ${fetchErr}`)
-      continue
-    } finally {
-      clearTimeout(timer)
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1500))
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 30_000)
+      let res: Response
+      try {
+        res = await fetch(ttsUrl, { method: 'POST', headers, body, signal: controller.signal })
+      } catch (fetchErr) {
+        lastErr = new Error(`fetch→${ttsUrl}: ${fetchErr}`)
+        continue
+      } finally {
+        clearTimeout(timer)
+      }
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}))
+        lastErr = new Error(errBody.error ?? `TTS ${res.status}`)
+        continue
+      }
+      const { url } = await res.json()
+      urlCache.set(key, url)
+      persistCache()
+      return url
     }
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      lastErr = new Error(errBody.error ?? `TTS ${res.status}`)
-      continue
-    }
-    const { url } = await res.json()
-    urlCache.set(key, url)
-    persistCache() // fire-and-forget
-    return url
-  }
-  throw lastErr
+    throw lastErr instanceof Error ? lastErr : new Error('TTS fetch failed')
+  })
 }
 
 // ─── Batch prefetch ───────────────────────────────────────────────────────────
