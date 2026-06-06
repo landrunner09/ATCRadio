@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { View, Text, TouchableOpacity, Platform } from 'react-native'
+import { View, Text, TouchableOpacity, Platform, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useMachine } from '@xstate/react'
 import { scenarioMachine } from '@/engine/machine'
@@ -326,6 +326,12 @@ export default function HudScreen() {
         phaseLabel={beat?.phase ?? ''}
       />
 
+      {/* Scrollable middle content — leaves PTTBar always visible at the bottom */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 16 }}
+      >
+
       {beat && state.value !== 'preflight' && (
         <SkillChip beat={beat} status={chipStatus} />
       )}
@@ -399,6 +405,8 @@ export default function HudScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      </ScrollView>
 
       <PTTBar
         enabled={isPTTEnabled}
