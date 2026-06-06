@@ -17,6 +17,7 @@ import { AirportDiagram } from '@/components/AirportDiagram'
 import { RadioTuner } from '@/components/RadioTuner'
 import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
 import { PhasePips } from '@/components/hud/PhasePips'
+import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -245,6 +246,15 @@ export default function HudScreen() {
   const isPTTEnabled = state.matches({ tuning_or_speaking: 'awaiting_response' }) && recordingState === 'idle'
   const isAtcSpeaking = state.matches({ tuning_or_speaking: 'atc_speaking' })
 
+  const chipStatus: SkillChipStatus =
+    beat?.listen_only && state.matches({ tuning_or_speaking: 'tuning' }) ? 'tune_atis'
+    : beat?.listen_only && state.matches({ tuning_or_speaking: 'awaiting_listen' }) ? 'tap_listen'
+    : beat?.listen_only ? 'listening'
+    : state.matches({ tuning_or_speaking: 'tuning' }) ? 'tune_radio'
+    : beat?.type === 'pilot_initiated' ? 'pilot_call'
+    : state.matches({ tuning_or_speaking: 'atc_speaking' }) ? 'atc_speaking'
+    : 'grading'
+
   return (
     <View className="flex-1 bg-bg">
       <HudStatusBar
@@ -261,20 +271,8 @@ export default function HudScreen() {
         phaseLabel={beat?.phase ?? ''}
       />
 
-      {/* Skill chip — label reflects current operation so user always knows what to do */}
       {beat && state.value !== 'preflight' && (
-        <View className="mx-5 mb-3 px-3 py-2 bg-surface2 rounded-xl border border-line flex-row justify-between items-center">
-          <Text className="text-muted text-xs uppercase tracking-widest">
-            {beat.listen_only && state.matches({ tuning_or_speaking: 'tuning' })         ? '📻 Tune to ATIS'
-           : beat.listen_only && state.matches({ tuning_or_speaking: 'awaiting_listen' }) ? '📻 Tap to Listen'
-           : beat.listen_only                                                              ? '📻 Listening…'
-           : state.matches({ tuning_or_speaking: 'tuning' })                             ? '📡 Tune Radio'
-           : beat.type === 'pilot_initiated'                                              ? '🎙 Your Call'
-           : state.matches({ tuning_or_speaking: 'atc_speaking' })                       ? '📣 ATC Speaking'
-           : 'Now Grading'}
-          </Text>
-          <Text className="text-accent text-xs font-semibold">{beat.skill_tag.replace(/_/g, ' ').toUpperCase()}</Text>
-        </View>
+        <SkillChip beat={beat} status={chipStatus} />
       )}
 
       {/* Airport diagram */}
