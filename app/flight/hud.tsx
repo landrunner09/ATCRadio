@@ -19,6 +19,7 @@ import { TunerCard } from '@/components/hud/TunerCard'
 import { PhasePips } from '@/components/hud/PhasePips'
 import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { ListenCard } from '@/components/hud/ListenCard'
+import { ATCCard } from '@/components/hud/ATCCard'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -247,6 +248,19 @@ export default function HudScreen() {
   const isPTTEnabled = state.matches({ tuning_or_speaking: 'awaiting_response' }) && recordingState === 'idle'
   const isAtcSpeaking = state.matches({ tuning_or_speaking: 'atc_speaking' })
 
+  const speakerLabel = beat
+    ? beat.speaker === 'approach'
+      ? (ctx.scenarioContext?.approach_facility ?? 'Approach')
+      : beat.speaker === 'ground'
+        ? `${pack.airport_icao} Ground`
+        : `${pack.airport_icao} Tower`
+    : ''
+  const freqLabel = beat
+    ? beat.speaker === 'approach' ? FULL_PACK.approach_freq
+      : beat.speaker === 'ground' ? ((FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
+      : FULL_PACK.tower_freq
+    : ''
+
   const chipStatus: SkillChipStatus =
     beat?.listen_only && state.matches({ tuning_or_speaking: 'tuning' }) ? 'tune_atis'
     : beat?.listen_only && state.matches({ tuning_or_speaking: 'awaiting_listen' }) ? 'tap_listen'
@@ -281,29 +295,17 @@ export default function HudScreen() {
         <AirportDiagram pack={pack} beatId={beat?.id} />
       </View>
 
-      {/* ATC card — only shown while atc_speaking (hides during tuning/awaiting_listen/awaiting_response) */}
-      {beat && beat.type !== 'pilot_initiated'
+      {beat
+        && beat.type !== 'pilot_initiated'
         && state.matches({ tuning_or_speaking: 'atc_speaking' }) && (
-        <View className="mx-5 mb-3 bg-surface2 rounded-2xl border border-line p-4">
-          <View className="flex-row justify-between items-center mb-2">
-            <View className="flex-row items-center gap-2">
-              {isAtcSpeaking && <View className="w-2 h-2 rounded-full bg-warm" />}
-              <Text className="text-warm text-xs font-bold uppercase tracking-widest">
-                {beat.speaker === 'approach'
-                  ? (beat.voice_role === 'norcal_approach' ? 'NorCal Approach' : 'Approach')
-                  : `${pack.airport_icao} Tower`}
-              </Text>
-              {isAtcSpeaking && <Text className="text-dim text-xs">speaking…</Text>}
-            </View>
-            <Text className="text-muted text-xs font-mono">
-              {beat.speaker === 'approach' ? FULL_PACK.approach_freq : FULL_PACK.tower_freq}
-            </Text>
-          </View>
-          {ttsError && (
-            <Text className="text-danger text-xs mb-1">⚠ {ttsError}</Text>
-          )}
-          <Text style={{ color: '#e7ecf5' }} className="text-sm font-mono leading-relaxed">{atcLine}</Text>
-        </View>
+        <ATCCard
+          beat={beat}
+          atcLine={atcLine}
+          speakerLabel={speakerLabel}
+          freqLabel={freqLabel}
+          isSpeaking={state.matches({ tuning_or_speaking: 'atc_speaking' })}
+          ttsError={ttsError}
+        />
       )}
 
 
