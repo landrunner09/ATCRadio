@@ -20,6 +20,7 @@ import { PhasePips } from '@/components/hud/PhasePips'
 import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { ListenCard } from '@/components/hud/ListenCard'
 import { ATCCard } from '@/components/hud/ATCCard'
+import { CueCard } from '@/components/hud/CueCard'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -325,50 +326,16 @@ export default function HudScreen() {
         <ListenCard onTap={() => send({ type: 'LISTEN_TAPPED' })} />
       )}
 
-      {/* Cue card — for pilot_initiated beats (shown during awaiting_response and atc_speaking) */}
       {beat?.type === 'pilot_initiated'
-        && (state.matches({ tuning_or_speaking: 'awaiting_response' }) || state.matches({ tuning_or_speaking: 'atc_speaking' })) && (
-        <View
-          className="mx-5 mb-3 rounded-2xl p-4"
-          style={{
-            borderWidth: 1,
-            borderColor: state.matches({ tuning_or_speaking: 'awaiting_response' }) ? '#6FE3FF' : '#1C2548',
-            backgroundColor: 'rgba(111,227,255,0.06)',
-          }}
-        >
-          {/* Show the tuned frequency */}
-          {beat.tune_to && (
-            <View className="flex-row items-center gap-2 mb-3 pb-2" style={{ borderBottomWidth: 1, borderColor: '#1C2548' }}>
-              <View className="w-2 h-2 rounded-full bg-go" />
-              <Text className="text-go text-xs font-mono font-bold">{currentFreq} MHz</Text>
-              <Text className="text-muted text-xs">· {beat.tune_label}</Text>
-            </View>
-          )}
-          <Text className="text-accent text-xs font-bold uppercase tracking-widest mb-2">
-            🎙 YOUR TRANSMISSION
-          </Text>
-          <Text style={{ color: '#e7ecf5' }} className="text-sm leading-relaxed">
-            {beat.cue_text
-              ? beat.cue_text
-                  .replace(/{approach_facility}/g, ctx.scenarioContext?.approach_facility ?? 'Approach')
-                  .replace(/{airport_icao}/g, pack.airport_icao)
-                  .replace(/{airport_name}/g, FULL_PACK.airport_name)
-                  .replace(/{callsign}/g, ctx.scenarioContext?.callsign ?? '')
-                  .replace(/{runway}/g, ctx.scenarioContext?.runway_in_use ?? '')
-                  .replace(/{taxiway}/g, ctx.scenarioContext?.departure_taxiway ?? '')
-                  .replace(/{atis_letter}/g, ctx.scenarioContext?.atis_letter ?? '')
-                  .replace(/{tower_freq}/g, FULL_PACK.tower_freq)
-                  .replace(/{approach_freq}/g, FULL_PACK.approach_freq)
-                  .replace(/{ground_freq}/g, (FULL_PACK as { ground_freq?: string }).ground_freq ?? '')
-                  .replace(/{squawk_code}/g, ctx.scenarioContext?.squawk_code ?? '')
-                  .replace(/{weather\.altimeter}/g, ctx.scenarioContext?.weather.altimeter ?? '')
-                  .replace(/{weather\.wind}/g, ctx.scenarioContext?.weather.wind ?? '')
-              : 'Make your radio call.'}
-          </Text>
-          {state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
-            <Text className="text-dim text-xs mt-2">Hold the mic button and transmit ↓</Text>
-          )}
-        </View>
+        && (state.matches({ tuning_or_speaking: 'awaiting_response' }) || state.matches({ tuning_or_speaking: 'atc_speaking' }))
+        && (
+        <CueCard
+          beat={beat}
+          pack={FULL_PACK}
+          scenarioContext={ctx.scenarioContext}
+          currentFreq={currentFreq}
+          awaitingResponse={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+        />
       )}
 
       {/* Student response area */}
