@@ -133,3 +133,69 @@ describe('gradeResponse', () => {
     expect(result.passed).toBe(false)
   })
 })
+
+describe('grader tolerance — Plan 3 B13 rules', () => {
+  const baseCtx: ScenarioContext = {
+    callsign: 'N73324', aircraft_type: 'C172', runway_in_use: '25R',
+    weather: { wind: '250 at 8', vis: '10SM', altimeter: '30.02' },
+    atis_letter: 'Bravo', departure_taxiway: 'alpha', destination: '',
+    controller_voice_ids: {}, squawk_code: '0421', approach_facility: 'NorCal Approach',
+  }
+
+  const makeTestBeat = (slots: Beat['expected_student_response']['required_slots']): Beat => ({
+    id: 'b', phase: 'TEST', skill_tag: 'test',
+    speaker: 'tower', voice_role: 'tower', line_template: '',
+    expected_student_response: { type: 'readback', required_slots: slots, phraseology_hints: [] },
+    on_pass: { next: '__debrief__' },
+    on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: true, max_retries: 2 },
+    on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: '__debrief__' },
+    on_say_again: { replay_audio: true },
+  })
+
+  test('runway: bare "25R" passes for parallel runway', () => {
+    const b = makeTestBeat([{ slot: 'runway', value: '{runway}', criticality: 'critical' }])
+    const r = gradeResponse('runway 25R, N73324', b, baseCtx, 0.9, PACK)
+    expect(r.passed).toBe(true)
+  })
+
+  test('runway: written-out "25 right" passes for 25R', () => {
+    const b = makeTestBeat([{ slot: 'runway', value: '{runway}', criticality: 'critical' }])
+    const r = gradeResponse('runway 25 right, N73324', b, baseCtx, 0.9, PACK)
+    expect(r.passed).toBe(true)
+  })
+
+  test('runway: bare "25" fails for parallel runway 25R (ambiguity)', () => {
+    const b = makeTestBeat([{ slot: 'runway', value: '{runway}', criticality: 'critical' }])
+    const r = gradeResponse('runway 25, cleared takeoff', b, baseCtx, 0.9, PACK)
+    expect(r.passed).toBe(false)
+  })
+
+  test('runway: bare "12" passes when assigned runway is "12" (no parallel)', () => {
+    const ctx12 = { ...baseCtx, runway_in_use: '12' }
+    const b = makeTestBeat([{ slot: 'runway', value: '{runway}', criticality: 'critical' }])
+    const r = gradeResponse('runway 12, N73324', b, ctx12, 0.9, PACK)
+    expect(r.passed).toBe(true)
+  })
+
+  test('hold_short: literal "of" is optional', () => {
+    const b = makeTestBeat([{ slot: 'hold_short_of', value: '{runway}', criticality: 'critical' }])
+    const r1 = gradeResponse('hold short 25R', b, baseCtx, 0.9, PACK)
+    const r2 = gradeResponse('hold short of runway 25R', b, baseCtx, 0.9, PACK)
+    expect(r1.passed).toBe(true)
+    expect(r2.passed).toBe(true)
+  })
+
+  test('action with adjacency: "cleared for takeoff" requires cleared+takeoff within 4 tokens', () => {
+    const b = makeTestBeat([{ slot: 'action', value: 'cleared for takeoff', criticality: 'critical' }])
+    const r1 = gradeResponse('cleared for takeoff runway 25R', b, baseCtx, 0.9, PACK)
+    const r2 = gradeResponse('cleared to taxi to runway, will land later', b, baseCtx, 0.9, PACK)
+    expect(r1.passed).toBe(true)
+    expect(r2.passed).toBe(false)
+  })
+
+  test('callsign: last-3 alphanumeric passes ("324" for N73324)', () => {
+    const b = makeTestBeat([{ slot: 'callsign', value: '{callsign}', criticality: 'critical' }])
+    const r = gradeResponse('roger, 324 ready for departure', b, baseCtx, 0.9, PACK)
+    expect(r.passed).toBe(true)
+  })
+})

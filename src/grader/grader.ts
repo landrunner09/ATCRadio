@@ -83,14 +83,21 @@ function slotPresentInTranscript(
     }
 
     case 'action': {
-      // Multi-word actions: each meaningful word must appear somewhere in the transcript
-      // (not necessarily adjacent). Stop-words "for / to / of" are skipped.
-      // "cleared for takeoff" → requires "cleared" AND "takeoff"
-      // "cleared to land"    → requires "cleared" AND "land"
-      // "ready"              → requires "ready"
-      // "inbound"            → requires "inbound"
+      // Multi-word actions must appear with required tokens within 4 words of each other,
+      // preventing false-positives on "cleared to taxi to runway, will land later".
+      // Stop-words "for / to / of" are skipped — the meaningful tokens must be close.
       const keywords = v.split(/\s+/).filter(w => !['for', 'to', 'of'].includes(w))
-      return keywords.every(w => t.includes(w))
+      if (keywords.length === 0) return false
+      if (keywords.length === 1) return t.includes(keywords[0])
+
+      // Find first keyword, then look for the rest within a 4-word window
+      const tokens = t.split(/\s+/)
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i] !== keywords[0]) continue
+        const window = tokens.slice(i, i + 5).join(' ')   // 4-word lookahead = 5 tokens incl. anchor
+        if (keywords.slice(1).every(kw => window.includes(kw))) return true
+      }
+      return false
     }
 
     case 'callsign': {
