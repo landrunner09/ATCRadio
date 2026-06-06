@@ -37,7 +37,7 @@ describe('scenarioMachine', () => {
     const actor = startActor()
     actor.send({ type: 'START', pack, scenarioContext: ctx })
     actor.send({ type: 'CONFIRM' })
-    expect(actor.getSnapshot().value).toBe('atc_speaking')
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
     actor.stop()
   })
 
@@ -46,7 +46,7 @@ describe('scenarioMachine', () => {
     actor.send({ type: 'START', pack, scenarioContext: ctx })
     actor.send({ type: 'CONFIRM' })
     actor.send({ type: 'ATC_DONE' })
-    expect(actor.getSnapshot().value).toBe('awaiting_response')
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'awaiting_response' })).toBe(true)
     actor.stop()
   })
 
@@ -61,7 +61,7 @@ describe('scenarioMachine', () => {
       transcript: 'information bravo runway thirty one altimeter thirty zero two',
       confidence: 0.95,
     })
-    expect(actor.getSnapshot().value).toBe('atc_speaking')
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
     expect(actor.getSnapshot().context.beatIndex).toBe(1)
     actor.stop()
   })
@@ -89,7 +89,7 @@ describe('scenarioMachine', () => {
     actor.send({ type: 'CONFIRM' })
     actor.send({ type: 'ATC_DONE' })
     actor.send({ type: 'SAY_AGAIN' })
-    expect(actor.getSnapshot().value).toBe('atc_speaking')
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
     actor.stop()
   })
 
@@ -101,7 +101,7 @@ describe('scenarioMachine', () => {
     actor.send({ type: 'SHOW_TILES' })
     expect(actor.getSnapshot().value).toBe('scaffold')
     actor.send({ type: 'SCAFFOLD_PASS' })
-    expect(actor.getSnapshot().value).toBe('atc_speaking')
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
     expect(actor.getSnapshot().context.beatIndex).toBe(1)
     actor.stop()
   })
