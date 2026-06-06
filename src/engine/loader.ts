@@ -24,12 +24,17 @@ export function renderLine(
     .replace(/{weather\.wind}/g, ctx.weather.wind)
     .replace(/{weather\.vis}/g, ctx.weather.vis)
     .replace(/{weather\.altimeter}/g, ctx.weather.altimeter)
+    .replace(/{weather\.sky}/g, ctx.weather.sky ?? '')
+    .replace(/{weather\.temp}/g, ctx.weather.temp ?? '')
+    .replace(/{weather\.dewpoint}/g, ctx.weather.dewpoint ?? '')
     .replace(/{altimeter}/g, ctx.weather.altimeter)
     .replace(/{approach_freq}/g, pack.approach_freq)
     .replace(/{tower_freq}/g, pack.tower_freq)
     .replace(/{squawk_code}/g, ctx.squawk_code)
     .replace(/{approach_facility}/g, ctx.approach_facility)
     .replace(/{airport_name}/g, pack.airport_name)
+    .replace(/{atis_time}/g, ctx.atis_time ?? '')
+    .replace(/{notams}/g, ctx.notams ?? 'No NOTAMs')
 }
 
 export function pickLine(beat: Beat, pack: ContentPack, ctx: ScenarioContext): string {
