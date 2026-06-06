@@ -173,3 +173,113 @@ describe('scenarioMachine empty beats guard (A3)', () => {
     actor.stop()
   })
 })
+
+// ── Plan 2 Phase C: compound tuning_or_speaking contract tests ────────────────
+import type { Beat } from '@/types/content'
+
+const makeBeat = (overrides: Partial<Beat>): Beat => ({
+  id: 'b1', phase: 'TEST', skill_tag: 'test',
+  speaker: 'tower', voice_role: 'test_tower', line_template: 'Hello',
+  expected_student_response: { type: 'readback', required_slots: [], phraseology_hints: [] },
+  on_pass: { next: '__debrief__' },
+  on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: true, max_retries: 2 },
+  on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: '__debrief__' },
+  on_say_again: { replay_audio: true },
+  ...overrides,
+})
+
+function makePack(beats: Beat[]) {
+  return { ...emptyPack, beats }
+}
+
+describe('new machine: tuning_or_speaking compound state (Plan 2)', () => {
+  test('beat with tune_to enters tuning sub-state on CONFIRM', () => {
+    const beat = makeBeat({ tune_to: '{tower_freq}', tune_label: 'Tower' })
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'tuning' })).toBe(true)
+    actor.stop()
+  })
+
+  test('beat with listen_only + tune_to: TUNED → awaiting_listen', () => {
+    const beat = makeBeat({ listen_only: true, tune_to: '{atis_freq}', tune_label: 'ATIS' })
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'TUNED' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'awaiting_listen' })).toBe(true)
+    actor.stop()
+  })
+
+  test('listen_only beat: LISTEN_TAPPED → atc_speaking → ATC_DONE → next beat', () => {
+    const atis = makeBeat({ id: 'atis', listen_only: true, tune_to: '{atis_freq}', on_pass: { next: 'next' } })
+    const next = makeBeat({ id: 'next' })
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([atis, next]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'TUNED' })
+    actor.send({ type: 'LISTEN_TAPPED' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
+    actor.send({ type: 'ATC_DONE' })
+    expect(actor.getSnapshot().context.beatIndex).toBe(1)
+    actor.stop()
+  })
+
+  test('pilot_initiated beat with tune_to: TUNED → awaiting_response (no ATC speech)', () => {
+    const beat = makeBeat({ type: 'pilot_initiated', tune_to: '{tower_freq}', tune_label: 'Tower' })
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'TUNED' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'awaiting_response' })).toBe(true)
+    actor.stop()
+  })
+
+  test('readback beat without tune_to: skips tuning, goes straight to atc_speaking', () => {
+    const beat = makeBeat({})  // default: readback, no tune_to
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
+    actor.stop()
+  })
+
+  test('readback beat: ATC_DONE → awaiting_response → RESPOND with empty transcript stays in awaiting_response', () => {
+    const beat = makeBeat({})
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'ATC_DONE' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'awaiting_response' })).toBe(true)
+    const beatIndexBefore = actor.getSnapshot().context.beatIndex
+    const retriesBefore = actor.getSnapshot().context.retryCount
+    actor.send({ type: 'RESPOND', transcript: '', confidence: 0 })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'awaiting_response' })).toBe(true)
+    expect(actor.getSnapshot().context.beatIndex).toBe(beatIndexBefore)
+    expect(actor.getSnapshot().context.retryCount).toBe(retriesBefore)
+    actor.stop()
+  })
+
+  test('SAY_AGAIN from awaiting_response returns to atc_speaking', () => {
+    const beat = makeBeat({})
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'ATC_DONE' })
+    actor.send({ type: 'SAY_AGAIN' })
+    expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
+    actor.stop()
+  })
+
+  test('SHOW_TILES from awaiting_response enters scaffold', () => {
+    const beat = makeBeat({})
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: makePack([beat]), scenarioContext: emptyCtx })
+    actor.send({ type: 'CONFIRM' })
+    actor.send({ type: 'ATC_DONE' })
+    actor.send({ type: 'SHOW_TILES' })
+    expect(actor.getSnapshot().value).toBe('scaffold')
+    actor.stop()
+  })
+})
