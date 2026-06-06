@@ -12,7 +12,7 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
 // ─── URL cache ────────────────────────────────────────────────────────────────
 // Two-tier: module-level Map (instant) + AsyncStorage (survives restarts, 30-day TTL)
 
-const STORAGE_KEY = 'atcradio_tts_url_cache_v6'
+const STORAGE_KEY = 'atcradio_tts_url_cache_v7'
 const TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 const urlCache = new Map<string, string>()

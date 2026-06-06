@@ -49,8 +49,11 @@ Respond with JSON only — no markdown, no preamble:
 {
   "explanation": "<1-2 sentences explaining what went wrong or what was good>",
   "aimCitation": "<AIM section reference, e.g. AIM 4-2-3(c) or empty string if none>",
-  "tip": "<one actionable tip for next time>"
-}`
+  "tip": "<one actionable tip for next time>",
+  "textbookPhrasing": "<the precise FAA-textbook phraseology for this exact transmission, empty string if not applicable>"
+}
+
+If the student passed but used a non-textbook phrasing, fill textbookPhrasing with the canonical FAA form (e.g. 'Cleared to land runway 25R, N12345'). Reference AIM 4-4-7 readback requirements where applicable.`
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS })
@@ -117,16 +120,17 @@ Deno.serve(async (req: Request) => {
   const raw = (llmData as { choices?: { message?: { content?: string } }[] })
     ?.choices?.[0]?.message?.content ?? ''
 
-  let coaching: { explanation: string; aimCitation: string; tip: string }
+  let coaching: { explanation: string; aimCitation: string; tip: string; textbookPhrasing: string }
   try {
     const parsed = JSON.parse(raw)
     coaching = {
       explanation: typeof parsed.explanation === 'string' ? parsed.explanation : raw,
       aimCitation: typeof parsed.aimCitation === 'string' ? parsed.aimCitation : '',
       tip: typeof parsed.tip === 'string' ? parsed.tip : '',
+      textbookPhrasing: typeof parsed.textbookPhrasing === 'string' ? parsed.textbookPhrasing : '',
     }
   } catch {
-    coaching = { explanation: raw || 'Coaching unavailable', aimCitation: '', tip: '' }
+    coaching = { explanation: raw || 'Coaching unavailable', aimCitation: '', tip: '', textbookPhrasing: '' }
   }
 
   return json(coaching)

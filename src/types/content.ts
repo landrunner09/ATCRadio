@@ -67,6 +67,9 @@ export interface ScenarioContext {
     wind: string
     vis: string
     altimeter: string
+    sky?: string         // e.g. "few clouds at five thousand"
+    temp?: string        // Celsius, e.g. "22"
+    dewpoint?: string    // Celsius, e.g. "14"
   }
   atis_letter: string
   departure_taxiway: string
@@ -76,6 +79,10 @@ export interface ScenarioContext {
   squawk_code: string
   /** Approach facility name for cue text (e.g. "NorCal Approach"). */
   approach_facility: string
+  /** 4-digit Zulu time for ATIS broadcast (e.g. "1815"). */
+  atis_time?: string
+  /** Free-text NOTAMs string for ATIS (e.g. "No NOTAMs"). */
+  notams?: string
 }
 
 export interface ContentPack {

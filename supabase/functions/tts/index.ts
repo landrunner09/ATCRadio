@@ -14,46 +14,57 @@ function spellDigits(s: string): string {
 }
 
 function expandAviationText(text: string): string {
-  let t = text
+  let s = text
 
-  // N-numbers: "N12345" → "November one two three four five"
-  t = t.replace(/\bN(\d[A-Z0-9]{1,4})\b/g, (_, suffix) =>
-    `November ${[...suffix].map(c => DIGIT[c] ?? c).join(' ')}`
-  )
+  // ── ATIS letter — single-letter phonetic expansion ────────────────────────────
+  // "information D" → "information Delta". Phonetic words ("information Delta")
+  // pass through unchanged.
+  const PHONETIC: Record<string, string> = {
+    A: 'Alpha', B: 'Bravo', C: 'Charlie', D: 'Delta', E: 'Echo',
+    F: 'Foxtrot', G: 'Golf', H: 'Hotel', I: 'India', J: 'Juliet',
+    K: 'Kilo', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar',
+    P: 'Papa', Q: 'Quebec', R: 'Romeo', S: 'Sierra', T: 'Tango',
+    U: 'Uniform', V: 'Victor', W: 'Whiskey', X: 'X-ray', Y: 'Yankee',
+    Z: 'Zulu',
+  }
+  s = s.replace(/\binformation\s+([A-Z])\b/g, (_m, l) => `information ${PHONETIC[l]}`)
 
-  // Frequencies: "118.6" → "one one eight point six"
-  t = t.replace(/\b(\d{3})\.(\d{1,3})\b/g, (_, int, dec) =>
-    `${spellDigits(int)} point ${spellDigits(dec)}`
-  )
-
-  // Altimeter: "altimeter 29.92" → "altimeter two niner niner two"
-  t = t.replace(/\baltimeter\s+(\d{2})\.?(\d{2})\b/gi, (_, maj, min) =>
-    `altimeter ${spellDigits(maj + min)}`
-  )
-
-  // Wind: "wind 270 at 8" → "wind two seven zero at eight"
-  t = t.replace(/\bwind\s+(\d{3})\s+at\s+(\d+)\b/gi, (_, dir, spd) =>
-    `wind ${spellDigits(dir)} at ${spellDigits(spd)}`
-  )
-
-  // Visibility: "visibility 10" → "visibility one zero"
-  t = t.replace(/\bvisibility\s+(\d+)\b/gi, (_, vis) =>
-    `visibility ${spellDigits(vis)}`
-  )
-
-  // Runway numbers: "runway 31L" → "runway three one left"
-  t = t.replace(/\brunway\s+(\d{1,2})([LRC]?)\b/gi, (_, num, suf) => {
-    const spelled = spellDigits(num.padStart(2, '0'))
-    const sufWords: Record<string, string> = { L: ' left', R: ' right', C: ' center' }
-    return `runway ${spelled}${sufWords[suf.toUpperCase()] ?? ''}`
+  // ── Altimeter — always four digits ──────────────────────────────────────────
+  // "altimeter 30.02" or "altimeter 3002" → "altimeter three zero zero two"
+  const DIGIT_NAMES = ['zero','one','two','three','four','five','six','seven','eight','niner']
+  s = s.replace(/\baltimeter\s+(\d{2})\.?(\d{2})\b/gi, (_m, hi, lo) => {
+    const digits = (hi + lo).split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    return `altimeter ${digits}`
   })
 
-  // Squawk codes: "squawk 4521" → "squawk four five two one"
-  t = t.replace(/\bsquawk\s+(\d{4})\b/gi, (_, code) =>
-    `squawk ${spellDigits(code)}`
-  )
+  // ── Wind — "wind 250 at 8" → "wind two five zero at eight" ──────────────────
+  // Handles calm, variable, gust
+  s = s.replace(/\bwind\s+calm\b/gi, 'wind calm')
+  s = s.replace(/\bwind\s+VRB(\d{1,3})\b/gi, (_m, kt) => {
+    const speedDigits = kt.split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    return `wind variable at ${speedDigits}`
+  })
+  s = s.replace(/\bwind\s+(\d{3})\s*(?:at|@)\s*(\d{1,3})(?:\s*G\s*(\d{1,3}))?/gi, (_m, dir, spd, gust) => {
+    const digits = (n: string) => n.split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    let out = `wind ${digits(dir)} at ${digits(spd)}`
+    if (gust) out += ` gust ${digits(gust)}`
+    return out
+  })
 
-  return t
+  // ── Frequencies — three-digit + decimal ────────────────────────────────────
+  s = s.replace(/\b(\d{3})\.(\d{1,3})\b/g, (_m, hi, dec) => {
+    const left = hi.split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    const right = dec.split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    return `${left} point ${right}`
+  })
+
+  // ── Squawk — four digits ───────────────────────────────────────────────────
+  s = s.replace(/\bsquawk\s+(\d{4})\b/gi, (_m, code) => {
+    const digits = code.split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
+    return `squawk ${digits}`
+  })
+
+  return s
 }
 
 async function sha256hex(input: string): Promise<string> {
@@ -87,17 +98,31 @@ Deno.serve(async (req) => {
     return json({ error: 'Missing required fields' }, 400)
   }
 
+  // B18: forbidden phrases per AIM 4-2-3 / AC 90-66C — strip if present
+  let cleanedText = rawText
+  const FORBIDDEN = [
+    /\bwith you\b/gi,
+    /\bany traffic in the area please advise\b/gi,
+    /\bfor the numbers\b/gi,
+  ]
+  for (const re of FORBIDDEN) {
+    if (re.test(cleanedText)) {
+      console.warn('[tts] forbidden phrase removed:', re.source)
+      cleanedText = cleanedText.replace(re, '').replace(/\s{2,}/g, ' ').trim()
+    }
+  }
+
   // Normalize before hashing so whitespace differences don't produce different cache keys
-  const text = expandAviationText(rawText.trim().replace(/\s+/g, ' '))
+  const text = expandAviationText(cleanedText.trim().replace(/\s+/g, ' '))
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // v6: OpenAI gpt-4o-mini-tts with per-region controller persona instructions
+  // v7: AIM-compliant number pronunciation + forbidden-phrase stripping
   const instructionHash = instructions ? await sha256hex(instructions) : 'default'
-  const cacheKey = await sha256hex(`v6:${voiceName}:${instructionHash}:${text}`)
+  const cacheKey = await sha256hex(`v7:${voiceName}:${instructionHash}:${text}`)
   const filename = `${cacheKey}.mp3`
 
   // Check storage cache first

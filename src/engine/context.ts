@@ -22,6 +22,20 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+function randomAtisTime(): string {
+  // 4-digit Zulu time (HHMM). Pick anywhere between 1200Z and 2200Z (typical VFR daylight).
+  const hour = 12 + Math.floor(Math.random() * 10)
+  const min = Math.floor(Math.random() * 6) * 10
+  return `${String(hour).padStart(2, '0')}${String(min).padStart(2, '0')}`
+}
+
+const SKY_CONDITIONS = [
+  'few clouds at five thousand',
+  'scattered clouds at six thousand',
+  'clear below one two thousand',
+  'few clouds at four thousand five hundred',
+]
+
 /** Random 4-digit octal squawk code, excluding reserved codes. */
 function randomSquawk(): string {
   // Reserved codes that ATC never assigns for flight following:
@@ -54,6 +68,9 @@ export function generateScenarioContext(
       wind: pick(WINDS),
       vis: '10SM',
       altimeter: pick(ALTIMETERS),
+      sky: pick(SKY_CONDITIONS),
+      temp: String(15 + Math.floor(Math.random() * 15)),     // 15-29 C
+      dewpoint: String(5 + Math.floor(Math.random() * 10)),   // 5-14 C
     },
     atis_letter: pick(ATIS_LETTERS),
     departure_taxiway: taxiway,
@@ -65,6 +82,8 @@ export function generateScenarioContext(
     },
     squawk_code: randomSquawk(),
     approach_facility: pack?.approach_facility ?? 'Approach',
+    atis_time: randomAtisTime(),
+    notams: 'No NOTAMs',
     ...overrides,
   }
 }

@@ -74,7 +74,7 @@ export const useAirportStore = create<AirportStore>((set, get) => ({
         AsyncStorage.getItem(ARRIVAL_KEY),
       ])
 
-      const CURRENT_SCHEMA = 4
+      const CURRENT_SCHEMA = 5
 
       // Filter out packs generated with an older schema — they'll be regenerated on demand
       const purgeStale = (raw: Record<string, ContentPack>) =>

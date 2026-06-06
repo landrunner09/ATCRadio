@@ -1,17 +1,55 @@
 import { createActor } from 'xstate'
 import { scenarioMachine } from '@/engine/machine'
-import KPAO from '@/content/KPAO.json'
 import { generateScenarioContext } from '@/engine/context'
-import { loadPack } from '@/engine/loader'
-import type { ContentPack, ScenarioContext } from '@/types/content'
+import type { ContentPack, ScenarioContext, Beat } from '@/types/content'
 
-const pack = loadPack(KPAO)
+// Controlled test fixtures — do NOT use real KPAO pack because the structural
+// tests below assume the first beat is a plain readback. Built-in packs now
+// start with a listen_only ATIS beat which routes through tuning+awaiting_listen.
+
 const ctx = generateScenarioContext(undefined, {
   callsign: 'N12345',
   runway_in_use: '31',
   atis_letter: 'Bravo',
   departure_taxiway: 'alpha',
 })
+
+const simpleReadback: Beat = {
+  id: 'b0', phase: 'TAXI', skill_tag: 'taxi_readback',
+  speaker: 'tower', voice_role: 'test_tower',
+  line_template: '{callsign}, taxi.',
+  line_variants: [],
+  expected_student_response: {
+    type: 'readback',
+    required_slots: [
+      { slot: 'callsign', value: '{callsign}', criticality: 'critical' },
+      { slot: 'runway', value: '{runway}', criticality: 'standard' },
+    ],
+    phraseology_hints: [],
+  },
+  on_pass: { next: 'b1' },
+  on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: true, max_retries: 2 },
+  on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: 'b1' },
+  on_say_again: { replay_audio: true },
+}
+
+const lastBeat: Beat = { ...simpleReadback, id: 'b1', on_pass: { next: '__debrief__' } }
+
+const pack: ContentPack = {
+  airport_icao: 'TEST',
+  airport_name: 'Test',
+  city: '',
+  tower_freq: '120.0',
+  approach_freq: '121.0',
+  atis_freq: '125.0',
+  scenario_type: 'departure',
+  controlled: true,
+  pattern_altitude_ft: 1000,
+  scenario_name: 'Test',
+  scenario_description: '',
+  estimated_duration_min: 0,
+  beats: [simpleReadback, lastBeat],
+}
 
 function startActor() {
   const actor = createActor(scenarioMachine)
@@ -55,10 +93,10 @@ describe('scenarioMachine', () => {
     actor.send({ type: 'START', pack, scenarioContext: ctx })
     actor.send({ type: 'CONFIRM' })
     actor.send({ type: 'ATC_DONE' })
-    // ATIS beat: respond with atis letter, runway, altimeter (all standard slots)
+    // Test pack first beat requires callsign + runway slots
     actor.send({
       type: 'RESPOND',
-      transcript: 'information bravo runway thirty one altimeter thirty zero two',
+      transcript: 'runway thirty one, N12345',
       confidence: 0.95,
     })
     expect(actor.getSnapshot().matches({ tuning_or_speaking: 'atc_speaking' })).toBe(true)
