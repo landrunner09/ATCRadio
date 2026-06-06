@@ -38,7 +38,7 @@ export default function HudScreen() {
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
 
-  const { startRun, endRun, addAttempt, tailNumber, setSessionNewBadges } = useFlightStore()
+  const { startRun, endRun, addAttempt, setSessionNewBadges } = useFlightStore()
   const { mode, selectedBeatIds } = useDrillStore()
   const { user } = useAuthStore()
   const { selectedIcao, customPacks, arrivalPacks, selectedScenarioType } = useAirportStore()
@@ -46,15 +46,15 @@ export default function HudScreen() {
   const { streak } = useStats(user?.id ?? null)
   const { checkAndAward } = useBadges(user?.id ?? null)
 
-  // ── Derived values that depend on each other — declaration ORDER matters ──
-  // All must come AFTER every hook call above to avoid TDZ crashes.
+  // Pack and voice are derived from store state; declared after all hook calls.
   const FULL_PACK = selectedScenarioType === 'arrival'
     ? (arrivalPacks[selectedIcao] ?? getPack(selectedIcao, customPacks))
     : getPack(selectedIcao, customPacks)
 
   const voice = getVoiceForAirport(FULL_PACK.airport_icao)
 
-  // PTT recording/processing state — separate concern from the scenario flow machine
+  // PTT recording phase — separate concern from the scenario flow machine.
+  // Resets to 'idle' on each PTT release; never reaches the XState machine.
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle')
 
   // Initialised to a "wrong" starting freq so ATIS requires the student to tune.
@@ -84,7 +84,7 @@ export default function HudScreen() {
     [ctx.beatIndex, !!ctx.pack, !!ctx.scenarioContext],
   )
 
-  const { play: playTTS, replay: replayTTS, prefetch: prefetchTTS } = useTTSPlayer({
+  const { play: playTTS } = useTTSPlayer({
     text: atcLine,
     voiceName: voice.name,
     instructions: voice.instructions,
@@ -101,7 +101,7 @@ export default function HudScreen() {
     onEnd: useCallback(() => {}, []),
   })
 
-  const { isRecording, startRecording, stopRecording } = useASRRecorder()
+  const { startRecording, stopRecording } = useASRRecorder()
   const pttHandlingRef = useRef(false)
   const debriefFiredRef = useRef(false)
   const ambienceRef = useRef<RadioAmbienceSession | null>(null)
@@ -158,22 +158,9 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.value, nextAtcLine])
 
-  // listen_only beats (ATIS): auto-advance after student manually triggers playback
-  // Machine enters awaiting_response → we immediately advance (no grading needed)
-  useEffect(() => {
-    if (!state.matches({ tuning_or_speaking: 'awaiting_response' }) || !beat?.listen_only) return
-    send({ type: 'RESPOND', transcript: '__listen_only__', confidence: 1 })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.value, ctx.beatIndex])
-
   // When machine enters atc_speaking sub-state, play TTS
   useEffect(() => {
     if (!state.matches({ tuning_or_speaking: 'atc_speaking' })) return
-    // pilot_initiated beats have no ATC audio — skip directly to advance via ATC_DONE
-    if (beat?.type === 'pilot_initiated') {
-      send({ type: 'ATC_DONE' })
-      return
-    }
     setTtsError(null)
     playTTS().catch((err) => {
       const msg = err instanceof Error ? err.message : String(err)
@@ -249,7 +236,6 @@ export default function HudScreen() {
   const phaseIndex = beat ? pack.beats.findIndex(b => b.id === beat.id) : 0
 
   const isPTTEnabled = state.matches({ tuning_or_speaking: 'awaiting_response' }) && recordingState === 'idle'
-  const isAtcSpeaking = state.matches({ tuning_or_speaking: 'atc_speaking' })
 
   const speakerLabel = beat
     ? beat.speaker === 'approach'
@@ -310,7 +296,6 @@ export default function HudScreen() {
           ttsError={ttsError}
         />
       )}
-
 
       {state.matches({ tuning_or_speaking: 'tuning' }) && beat?.tune_to && (
         <TunerCard
