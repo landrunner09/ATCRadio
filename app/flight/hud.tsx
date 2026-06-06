@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { View, Text, TouchableOpacity, Pressable, Platform } from 'react-native'
+import { View, Text, TouchableOpacity, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useMachine } from '@xstate/react'
 import { scenarioMachine } from '@/engine/machine'
@@ -21,6 +21,8 @@ import { SkillChip, type SkillChipStatus } from '@/components/hud/SkillChip'
 import { ListenCard } from '@/components/hud/ListenCard'
 import { ATCCard } from '@/components/hud/ATCCard'
 import { CueCard } from '@/components/hud/CueCard'
+import { ScaffoldPanel } from '@/components/hud/ScaffoldPanel'
+import { PTTBar } from '@/components/hud/PTTBar'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -338,38 +340,14 @@ export default function HudScreen() {
         />
       )}
 
-      {/* Student response area */}
       <View className="mx-5 mb-4">
         {state.value === 'scaffold' && beat && (
-          <View className="bg-surface2 rounded-2xl p-4" style={{ borderWidth: 1, borderColor: '#FFB85C' }}>
-            <Text className="text-warm text-xs font-bold uppercase tracking-widest mb-3">▦ Scaffold mode</Text>
-            {beat.expected_student_response.required_slots.map(slot => (
-              <View key={slot.slot} className="flex-row items-center gap-2 mb-2">
-                <View className={`w-2 h-2 rounded-full ${slot.criticality === 'critical' ? 'bg-danger' : 'bg-dim'}`} />
-                <Text className="text-dim text-xs uppercase tracking-widest">{slot.slot}:</Text>
-                <Text style={{ color: '#e7ecf5' }} className="text-xs font-mono">
-                  {slot.value
-                    .replace('{runway}', ctx.scenarioContext?.runway_in_use ?? '31')
-                    .replace('{callsign}', ctx.scenarioContext?.callsign ?? 'N12345')
-                    .replace('{taxiway}', ctx.scenarioContext?.departure_taxiway ?? 'alpha')
-                    .replace('{atis_letter}', ctx.scenarioContext?.atis_letter ?? 'Bravo')
-                    .replace('{altimeter}', ctx.scenarioContext?.weather.altimeter ?? '29.92')
-                    .replace('{approach_freq}', FULL_PACK.approach_freq)
-                    .replace('{tower_freq}', FULL_PACK.tower_freq)
-                    .replace('{squawk_code}', ctx.scenarioContext?.squawk_code ?? '4523')
-                    .replace('{approach_facility}', ctx.scenarioContext?.approach_facility ?? 'Approach')
-                    .replace('{airport_name}', FULL_PACK.airport_name)
-                  }
-                </Text>
-              </View>
-            ))}
-            <TouchableOpacity
-              className="bg-warm rounded-xl py-3 mt-3 items-center"
-              onPress={handleScaffoldPass}
-            >
-              <Text className="text-bg font-bold text-sm">I'VE GOT IT →</Text>
-            </TouchableOpacity>
-          </View>
+          <ScaffoldPanel
+            beat={beat}
+            pack={FULL_PACK}
+            scenarioContext={ctx.scenarioContext}
+            onPass={handleScaffoldPass}
+          />
         )}
 
         {state.value === 'preflight' && (
@@ -380,65 +358,20 @@ export default function HudScreen() {
             <Text className="text-bg font-bold text-base">BEGIN SCENARIO →</Text>
           </TouchableOpacity>
         )}
-
-        {asrError && state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
-          <Text className="text-danger text-xs text-center mb-2">⚠ {asrError}</Text>
-        )}
       </View>
 
-      {/* PTT Controls */}
-      {state.matches({ tuning_or_speaking: 'awaiting_response' }) && (
-        <View className="flex-row px-5 gap-3 items-center justify-center">
-          <TouchableOpacity
-            className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
-            onPress={handleSayAgain}
-            disabled={recordingState !== 'idle'}
-          >
-            <Text className="text-accent text-xs font-bold">⟲ SAY AGAIN</Text>
-          </TouchableOpacity>
-
-          <Pressable
-            onPressIn={handlePTTPress}
-            onPressOut={handlePTTRelease}
-            disabled={!isPTTEnabled}
-            style={({ pressed }) => ({
-              width: 80,
-              height: 80,
-              borderRadius: 40,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 4,
-              backgroundColor: recordingState === 'recording'
-                ? '#FF5C5C'
-                : recordingState === 'processing'
-                ? '#FFB85C'
-                : isPTTEnabled ? '#5BE3A1' : '#1C2548',
-              borderColor: recordingState === 'recording'
-                ? 'rgba(255,92,92,0.4)'
-                : recordingState === 'processing'
-                ? 'rgba(255,184,92,0.4)'
-                : isPTTEnabled ? 'rgba(91,227,161,0.4)' : '#1C2548',
-            })}
-          >
-            <Text style={{
-              color: '#0B0F1E',
-              fontWeight: '800',
-              fontSize: 10,
-              textAlign: 'center',
-            }}>
-              {recordingState === 'recording' ? 'LISTENING\n…' : recordingState === 'processing' ? 'PROC\n…' : 'HOLD\nTALK'}
-            </Text>
-          </Pressable>
-
-          <TouchableOpacity
-            className="flex-1 bg-surface2 rounded-2xl py-4 items-center border border-line"
-            onPress={handleShowTiles}
-            disabled={recordingState !== 'idle'}
-          >
-            <Text className="text-warm text-xs font-bold">▦ TILES</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      <PTTBar
+        enabled={isPTTEnabled}
+        recording={recordingState === 'recording'}
+        processing={recordingState === 'processing'}
+        asrError={state.matches({ tuning_or_speaking: 'awaiting_response' }) ? asrError : null}
+        onPressIn={handlePTTPress}
+        onPressOut={handlePTTRelease}
+        onSayAgain={handleSayAgain}
+        onShowTiles={handleShowTiles}
+        showSayAgain={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+        showTiles={state.matches({ tuning_or_speaking: 'awaiting_response' })}
+      />
     </View>
   )
 }
