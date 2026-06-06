@@ -47,6 +47,12 @@ export function normalizePhonetic(text: string): string {
   s = s.replace(/(\d)\s+(?=[\d.])/g, '$1')
   s = s.replace(/(\d)\s*\.\s*(\d)/g, '$1.$2')
 
+  // Strip trailing zeros from frequencies (e.g. "119.800" -> "119.8")
+  // Match: digits + . + digits (with at least one non-zero) + trailing zeros
+  s = s.replace(/(\d+\.\d*[1-9])0+\b/g, '$1')
+  // Handle pure zeros after decimal (e.g. "119.000" -> "119")
+  s = s.replace(/(\d+)\.0+\b/g, '$1')
+
   // Normalize whitespace
   s = s.replace(/\s+/g, ' ').trim()
 
