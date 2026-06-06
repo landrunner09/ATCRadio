@@ -154,9 +154,16 @@ export function useTTSPlayer({ text, voiceName, instructions, onEnd }: TTSPlayer
   const playUrl = useCallback(async (url: string) => {
     if (Platform.OS === 'web') {
       stopWebRef.current?.()
+      // Bail if component unmounted while we were awaiting upstream
+      if (!mountedRef.current) return
       stopWebRef.current = await playWithRadioFilter(url, () => {
         if (mountedRef.current) onEndRef.current()
       })
+      // Double-check after the await — playWithRadioFilter fetches audio
+      if (!mountedRef.current) {
+        stopWebRef.current?.()
+        stopWebRef.current = null
+      }
       return
     }
 
@@ -164,12 +171,21 @@ export function useTTSPlayer({ text, voiceName, instructions, onEnd }: TTSPlayer
       await soundRef.current.unloadAsync()
       soundRef.current = null
     }
+    if (!mountedRef.current) return
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
     })
+    if (!mountedRef.current) return
+
     const { sound } = await Audio.Sound.createAsync({ uri: url })
+    if (!mountedRef.current) {
+      // Component unmounted while we were creating the sound — unload immediately
+      sound.unloadAsync().catch(() => {})
+      return
+    }
     soundRef.current = sound
     sound.setOnPlaybackStatusUpdate((status) => {
       if (status.isLoaded && status.didJustFinish && mountedRef.current) {
