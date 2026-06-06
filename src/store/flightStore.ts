@@ -73,13 +73,14 @@ export const useFlightStore = create<FlightStore>((set, get) => ({
 
   addAttempt: (attempt) => {
     set(state => ({ attempts: [...state.attempts, attempt] }))
-    const { runId, pendingAttempts } = get()
+    const { runId } = get()
     if (runId) {
-      // Track the promise so endRun can await it before closeRun
+      // Track the promise so endRun can await it before closeRun.
+      // Use functional set to avoid the get/set race when two attempts fire in the same tick.
       const p = saveAttempt(runId, attempt).catch(e => {
         console.warn('[flightStore] saveAttempt failed:', e)
       })
-      set({ pendingAttempts: [...pendingAttempts, p] })
+      set(state => ({ pendingAttempts: [...state.pendingAttempts, p] }))
     }
   },
 
