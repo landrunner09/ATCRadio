@@ -59,9 +59,13 @@ export default function HudScreen() {
 
   // ACT/STBY radio state (Garmin-style). ACT starts at ATIS freq so the scenario
   // begins with the student already listening to ATIS. STBY blank.
-  const [activeFreq, setActiveFreq] = useState(() =>
-    (FULL_PACK as { atis_freq?: string }).atis_freq ?? '118.000'
-  )
+  // Initial values are normalized to 3-decimal canonical form so comparisons
+  // with ComRadio output ("119.800") and pack freqs ("119.8") work uniformly.
+  const [activeFreq, setActiveFreq] = useState(() => {
+    const raw = (FULL_PACK as { atis_freq?: string }).atis_freq ?? '118.000'
+    const n = parseFloat(raw)
+    return isFinite(n) ? n.toFixed(3) : '118.000'
+  })
   const [standbyFreq, setStandbyFreq] = useState('118.000')
 
   // Backwards compatibility alias for code that still references currentFreq.
@@ -157,16 +161,26 @@ export default function HudScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK.atis_freq, pack_ground])
 
+  // Normalize freq to 3-decimal canonical form for comparison.
+  // AVWX/LLM/packs store freqs like "119.8" or "119.55", but ComRadio outputs
+  // "119.800". Without normalization, string-equals fails silently.
+  const normFreq = useCallback((f: string | undefined | null): string => {
+    if (!f) return ''
+    const n = parseFloat(f)
+    return isFinite(n) ? n.toFixed(3) : ''
+  }, [])
+
   // Reverse-lookup: given a freq, return the facility name for display in <ComRadio>
   const facilityLabel = useCallback((freq: string): string => {
-    if (!freq) return ''
-    if (freq === FULL_PACK.atis_freq) return 'ATIS'
-    if (freq === FULL_PACK.tower_freq) return 'Tower'
-    if (freq === FULL_PACK.approach_freq) return 'Approach'
+    const f = normFreq(freq)
+    if (!f) return ''
+    if (f === normFreq(FULL_PACK.atis_freq)) return 'ATIS'
+    if (f === normFreq(FULL_PACK.tower_freq)) return 'Tower'
+    if (f === normFreq(FULL_PACK.approach_freq)) return 'Approach'
     const ground = (FULL_PACK as { ground_freq?: string }).ground_freq
-    if (ground && freq === ground) return 'Ground'
+    if (ground && f === normFreq(ground)) return 'Ground'
     return ''
-  }, [FULL_PACK.atis_freq, FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK])
+  }, [FULL_PACK.atis_freq, FULL_PACK.tower_freq, FULL_PACK.approach_freq, FULL_PACK, normFreq])
 
   // Prefetch next beat's TTS while the user is responding (hides API latency)
   useEffect(() => {
@@ -201,11 +215,12 @@ export default function HudScreen() {
 
   // Garmin-style: dispatch TUNED automatically when ACT freq matches the beat's required freq.
   // The student tunes STBY then swaps; the moment ACT == target, the machine advances.
+  // Use normalized 3-decimal compare so "119.8" === "119.800".
   useEffect(() => {
     if (!state.matches({ tuning_or_speaking: 'tuning' })) return
     if (!beat?.tune_to) return
-    const target = resolveTuneTo(beat.tune_to)
-    if (activeFreq === target) {
+    const target = normFreq(resolveTuneTo(beat.tune_to))
+    if (target && normFreq(activeFreq) === target) {
       send({ type: 'TUNED' })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
