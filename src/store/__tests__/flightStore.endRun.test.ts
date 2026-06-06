@@ -52,8 +52,8 @@ describe('flightStore.endRun awaits pending attempts (A9)', () => {
     // Add 3 attempts — each triggers a saveAttempt that doesn't resolve yet
     for (let i = 0; i < 3; i++) {
       useFlightStore.getState().addAttempt({
-        beat_id: `b${i}`, skill_tag: 'taxi', result: 'pass',
-        transcript: '', confidence: 1, missing_slots: [], created_at: new Date().toISOString(),
+        beatId: `b${i}`, skillTag: 'taxi', result: 'pass',
+        gradeResult: null, timestamp: Date.now(),
       })
     }
     expect(saveAttemptResolvers).toHaveLength(3)
