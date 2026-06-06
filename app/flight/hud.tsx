@@ -16,6 +16,7 @@ import { getVoiceForAirport } from '@/audio/audioConstants'
 import { AirportDiagram } from '@/components/AirportDiagram'
 import { RadioTuner } from '@/components/RadioTuner'
 import { StatusBar as HudStatusBar } from '@/components/hud/StatusBar'
+import { PhasePips } from '@/components/hud/PhasePips'
 import { useBadges } from '@/hooks/useBadges'
 import { useStats } from '@/hooks/useStats'
 import { createRadioAmbienceSession, type RadioAmbienceSession } from '@/audio/radioAmbience'
@@ -254,22 +255,11 @@ export default function HudScreen() {
         wind={ctx.scenarioContext?.weather.wind ?? ''}
       />
 
-      {/* Phase pips */}
-      <View className="flex-row items-center px-5 py-3 gap-3">
-        <View className="flex-1 flex-row gap-1">
-          {pack.beats.map((_, i) => (
-            <View
-              key={i}
-              className={`flex-1 h-1.5 rounded-full ${
-                i < phaseIndex ? 'bg-go' : i === phaseIndex ? 'bg-accent' : 'bg-line'
-              }`}
-            />
-          ))}
-        </View>
-        <Text className="text-dim text-xs font-bold uppercase tracking-wider">
-          {String(phaseIndex + 1).padStart(2, '0')} · {beat?.phase ?? '—'}
-        </Text>
-      </View>
+      <PhasePips
+        beatCount={pack.beats.length}
+        currentIndex={phaseIndex}
+        phaseLabel={beat?.phase ?? ''}
+      />
 
       {/* Skill chip — label reflects current operation so user always knows what to do */}
       {beat && state.value !== 'preflight' && (
