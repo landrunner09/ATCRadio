@@ -3,6 +3,7 @@ import { scenarioMachine } from '@/engine/machine'
 import KPAO from '@/content/KPAO.json'
 import { generateScenarioContext } from '@/engine/context'
 import { loadPack } from '@/engine/loader'
+import type { ContentPack, ScenarioContext } from '@/types/content'
 
 const pack = loadPack(KPAO)
 const ctx = generateScenarioContext(undefined, {
@@ -116,6 +117,59 @@ describe('scenarioMachine', () => {
       actor.send({ type: 'SCAFFOLD_PASS' })
     }
     expect(actor.getSnapshot().value).toBe('debrief')
+    actor.stop()
+  })
+})
+
+// ── A3: Empty beats guard ──────────────────────────────────────────────────
+
+const emptyPack: ContentPack = {
+  airport_icao: 'TEST',
+  airport_name: 'Test',
+  city: '',
+  tower_freq: '120.0',
+  approach_freq: '121.0',
+  atis_freq: '125.0',
+  scenario_type: 'departure',
+  controlled: true,
+  pattern_altitude_ft: 1000,
+  scenario_name: 'Empty',
+  scenario_description: '',
+  estimated_duration_min: 0,
+  beats: [],   // <-- the test case
+}
+
+const emptyCtx: ScenarioContext = {
+  callsign: 'N12345', aircraft_type: 'C172', runway_in_use: '31',
+  weather: { wind: '310 at 8', vis: '10SM', altimeter: '30.02' },
+  atis_letter: 'Bravo', departure_taxiway: 'alpha', destination: 'practice_area_west',
+  controller_voice_ids: {}, squawk_code: '4523', approach_facility: 'Approach',
+}
+
+describe('scenarioMachine empty beats guard (A3)', () => {
+  test('START with empty pack.beats transitions directly to debrief (no deadlock)', () => {
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: emptyPack, scenarioContext: emptyCtx })
+    expect(actor.getSnapshot().value).toBe('debrief')
+    actor.stop()
+  })
+
+  test('START with non-empty pack.beats still transitions to preflight (existing behavior)', () => {
+    const oneBeatPack: ContentPack = {
+      ...emptyPack,
+      beats: [{
+        id: 'test.beat', phase: 'TAXI', skill_tag: 'taxi_readback',
+        speaker: 'tower' as const, voice_role: 'test_tower', line_template: 'Test',
+        expected_student_response: { type: 'readback', required_slots: [], phraseology_hints: [] },
+        on_pass: { next: '__debrief__' },
+        on_partial: { missing_critical: [], controller_correction: '', retry_same_beat: true, max_retries: 2 },
+        on_fail_after_retries: { scaffold_mode: true, next_after_scaffold_pass: '__debrief__' },
+        on_say_again: { replay_audio: true },
+      }],
+    }
+    const actor = createActor(scenarioMachine).start()
+    actor.send({ type: 'START', pack: oneBeatPack, scenarioContext: emptyCtx })
+    expect(actor.getSnapshot().value).toBe('preflight')
     actor.stop()
   })
 })

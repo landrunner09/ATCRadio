@@ -85,17 +85,33 @@ export const scenarioMachine = createMachine(
     states: {
       idle: {
         on: {
-          START: {
-            target: 'preflight',
-            actions: assign({
-              pack: ({ event }) => event.pack,
-              scenarioContext: ({ event }) => event.scenarioContext,
-              beatIndex: 0,
-              retryCount: 0,
-              attempts: [],
-              lastGradeResult: null,
-            }),
-          },
+          START: [
+            // Defensive: empty beats array → jump straight to debrief (drill mode with no selection, etc.)
+            {
+              guard: ({ event }) => event.type === 'START' && (event.pack?.beats?.length ?? 0) === 0,
+              target: 'debrief',
+              actions: assign({
+                pack: ({ event }) => event.type === 'START' ? event.pack : null,
+                scenarioContext: ({ event }) => event.type === 'START' ? event.scenarioContext : null,
+                beatIndex: 0,
+                retryCount: 0,
+                attempts: [],
+                lastGradeResult: null,
+              }),
+            },
+            // Normal path
+            {
+              target: 'preflight',
+              actions: assign({
+                pack: ({ event }) => event.type === 'START' ? event.pack : null,
+                scenarioContext: ({ event }) => event.type === 'START' ? event.scenarioContext : null,
+                beatIndex: 0,
+                retryCount: 0,
+                attempts: [],
+                lastGradeResult: null,
+              }),
+            },
+          ],
         },
       },
 
