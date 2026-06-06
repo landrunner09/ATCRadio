@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router'
 import { useAuthStore } from '@/store/authStore'
 import { useFlightStore } from '@/store/flightStore'
 import { supabase } from '@/lib/supabase'
-import { VOICES } from '@/audio/audioConstants'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CATEGORIES, filterProducts, openProduct, type CategoryId, type GearProduct } from '@/data/gearCatalog'
 
@@ -36,13 +35,6 @@ function ProductCard({ product }: { product: GearProduct }) {
     </View>
   )
 }
-
-const ACCENTS = [
-  { label: '🇺🇸 American', id: 'american' },
-  { label: '🇬🇧 British', id: 'british' },
-  { label: '🇮🇳 Indian', id: 'indian' },
-  { label: '🇦🇺 Australian', id: 'australian' },
-]
 
 const RADIO_FILTER_KEY = 'audio_radio_filter'
 const TAIL_RE = /^N[1-9][0-9]{0,4}[A-Z]{0,2}$/
@@ -76,7 +68,7 @@ export default function SettingsScreen() {
   const router = useRouter()
   const { user, isGuest, signOut } = useAuthStore()
   const [activeCategory, setActiveCategory] = useState<CategoryId | 'all'>('all')
-  const { selectedAccent, setSelectedAccent, tailNumber, setTailNumber } = useFlightStore()
+  const { tailNumber, setTailNumber } = useFlightStore()
   const [radioFilter, setRadioFilter] = useState(true)
   const [tailInput, setTailInput] = useState(tailNumber)
 
@@ -98,13 +90,6 @@ export default function SettingsScreen() {
       setTailInput(tail)
     }
   }, [user])
-
-  async function handleAccentChange(key: string) {
-    setSelectedAccent(key)
-    if (user?.id) {
-      await supabase.auth.updateUser({ data: { accent_preference: key } }).catch(() => {})
-    }
-  }
 
   async function handleToggleRadioFilter(val: boolean) {
     setRadioFilter(val)
@@ -171,27 +156,11 @@ export default function SettingsScreen() {
       </View>
 
       {/* ATC Voice */}
-      <SectionHeader label="ATC Controller Accent" />
+      <SectionHeader label="ATC Controller" />
       <View className="bg-surface2 rounded-2xl border border-line p-4 mb-2">
-        <View className="flex-row flex-wrap gap-2">
-          {ACCENTS.map(a => (
-            <TouchableOpacity
-              key={a.id}
-              className="px-4 py-2.5 rounded-full"
-              style={selectedAccent === a.id
-                ? { borderWidth: 1, borderColor: '#6FE3FF', backgroundColor: 'rgba(111,227,255,0.12)' }
-                : { borderWidth: 1, borderColor: '#1C2548' }
-              }
-              onPress={() => handleAccentChange(a.id)}
-            >
-              <Text className="text-sm" style={{ color: selectedAccent === a.id ? '#6FE3FF' : '#8A9BC4', fontWeight: selectedAccent === a.id ? '600' : '400' }}>
-                {a.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <Text className="text-dim text-xs mt-3">
-          Voice: {VOICES[selectedAccent]?.name ?? 'Kore'} · {VOICES[selectedAccent]?.languageCode ?? 'en-US'}
+        <Text style={{ color: '#e7ecf5' }} className="text-sm mb-1">Auto-detected from airport</Text>
+        <Text className="text-dim text-xs">
+          Voice and accent are chosen automatically from the airport you're flying at (K = FAA American, EG = UK CAA British, Y = Australian, etc.). Each region uses appropriate ICAO phraseology.
         </Text>
       </View>
 
