@@ -4,6 +4,7 @@ import { Audio } from 'expo-av'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { playWithRadioFilter } from './radioFilter'
 import { dedupeFetch } from './ttsDedup'
+import { createSemaphore } from './semaphore'
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
@@ -104,14 +105,18 @@ async function fetchTTSUrl(text: string, voiceName: string, instructions: string
 }
 
 // ─── Batch prefetch ───────────────────────────────────────────────────────────
-// Fire all requests concurrently. Failures are silently ignored (best-effort warm).
+// Module-level — one shared semaphore across all prefetch batches
+const prefetchSemaphore = createSemaphore(3)
+
+// Fire requests through a shared semaphore (max 3 concurrent OpenAI calls).
+// Failures are silently swallowed (best-effort warm).
 export async function prefetchTTSBatch(
   beats: Array<{ text: string; voiceName: string; instructions: string }>
 ): Promise<void> {
   await Promise.allSettled(
     beats
       .filter(b => b.text.trim())
-      .map(b => fetchTTSUrl(b.text, b.voiceName, b.instructions))
+      .map(b => prefetchSemaphore.run(() => fetchTTSUrl(b.text, b.voiceName, b.instructions)))
   )
 }
 
