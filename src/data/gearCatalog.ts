@@ -1,5 +1,16 @@
 // src/data/gearCatalog.ts
+// Curated list of gear ATCRadio recommends to student pilots. Every product
+// link is decorated with affiliate tracking at click time (see affiliateConfig).
+//
+// Curation principles:
+//   - Only items I'd recommend to my own student (no "filler" SKUs).
+//   - At least one BUDGET pick and one TOP PICK per category.
+//   - Direct product URLs (not search results) — fewer clicks to checkout.
+//
+// To update commission rates: see src/data/affiliateConfig.ts header.
+
 import { Linking } from 'react-native'
+import { withAffiliateTracking, trackClick } from './affiliateConfig'
 
 export type CategoryId = 'headsets' | 'apps' | 'navigation' | 'kneeboards' | 'books'
 export type BadgeType = 'TOP PICK' | 'BUDGET' | 'ESSENTIAL'
@@ -11,7 +22,7 @@ export interface GearProduct {
   price: string
   category: CategoryId
   badge?: BadgeType
-  affiliateUrl: string  // replace with tracking URL after joining each program
+  affiliateUrl: string
 }
 
 export const CATEGORIES: { id: CategoryId | 'all'; label: string }[] = [
@@ -23,174 +34,176 @@ export const CATEGORIES: { id: CategoryId | 'all'; label: string }[] = [
   { id: 'books',       label: 'Books' },
 ]
 
-// affiliateUrl fields are placeholder direct links.
-// Replace with your tracking URLs after joining each affiliate program:
-//   Pilot Mall (10%):      https://affiliates.pilotmall.com/pilot-6/register
-//   Pilot Institute (20%): https://pilotinstitute.com/affiliates/
-//   Amazon Associates (3%): https://affiliate-program.amazon.com
-//   Lightspeed Aviation:   https://www.lightspeedaviation.com/affiliate-area/
-//   FlightInsight (20%):   https://www.flight-insight.com/affiliate
 export const GEAR_PRODUCTS: GearProduct[] = [
   // ── Headsets ────────────────────────────────────────────────────────────
   {
-    id: 'bose-proflight-2',
-    name: 'Bose ProFlight 2',
-    tagline: 'Best-in-class ANR for the flight deck',
-    price: '$1,095',
+    id: 'bose-a30',
+    name: 'Bose A30',
+    tagline: 'Industry benchmark ANR — quiet enough for long XCs',
+    price: '$1,299',
     category: 'headsets',
     badge: 'TOP PICK',
-    affiliateUrl: 'https://www.pilotmall.com/products/bose-proflight-series-2-aviation-headset',
+    affiliateUrl: 'https://www.amazon.com/dp/B0C2J42BKC',
   },
   {
     id: 'lightspeed-zulu3',
     name: 'Lightspeed Zulu 3',
-    tagline: 'Premium comfort for long cross-countries',
+    tagline: 'Premium comfort + 7-year warranty, half the Bose price',
     price: '$949',
     category: 'headsets',
-    affiliateUrl: 'https://www.lightspeedaviation.com/zulu3/',
+    affiliateUrl: 'https://www.lightspeedaviation.com/products/zulu-3-headset/',
   },
   {
     id: 'lightspeed-sierra',
     name: 'Lightspeed Sierra',
-    tagline: 'Full-featured at a mid-range price',
-    price: '$599',
-    category: 'headsets',
-    affiliateUrl: 'https://www.lightspeedaviation.com/sierra/',
-  },
-  {
-    id: 'david-clark-h10',
-    name: 'David Clark H10-13.4',
-    tagline: 'The bulletproof workhorse — every FBO has one',
-    price: '$299',
-    category: 'headsets',
-    affiliateUrl: 'https://www.pilotmall.com/products/david-clark-h10-13-4-aviation-headset',
-  },
-  {
-    id: 'rugged-air-ra452',
-    name: 'Rugged Air RA452',
-    tagline: 'Get started without breaking the bank',
-    price: '$80',
+    tagline: 'ANR without the premium tag — great first headset',
+    price: '$650',
     category: 'headsets',
     badge: 'BUDGET',
-    affiliateUrl: 'https://www.amazon.com/dp/B01MYXKXH0',
-  },
-  // ── Apps & Subscriptions ─────────────────────────────────────────────────
-  {
-    id: 'pilot-institute-ppl',
-    name: 'Pilot Institute Private Pilot',
-    tagline: 'Top-rated online ground school',
-    price: '$199',
-    category: 'apps',
-    badge: 'TOP PICK',
-    affiliateUrl: 'https://pilotinstitute.com/course/private-pilot/',
+    affiliateUrl: 'https://www.lightspeedaviation.com/products/sierra-headset/',
   },
   {
-    id: 'garmin-pilot',
-    name: 'Garmin Pilot',
-    tagline: 'Deep integration with Garmin avionics',
-    price: '$199/yr',
-    category: 'apps',
-    affiliateUrl: 'https://www.pilotmall.com/products/garmin-pilot-app-subscription',
+    id: 'david-clark-one-x',
+    name: 'David Clark ONE-X',
+    tagline: 'Light, durable ANR from the workhorse brand',
+    price: '$895',
+    category: 'headsets',
+    affiliateUrl: 'https://www.amazon.com/dp/B00FYJCQQ8',
   },
   {
-    id: 'flightinsight-gs',
-    name: 'FlightInsight Ground School',
-    tagline: 'Structured video curriculum for self-studiers',
-    price: '$97',
-    category: 'apps',
-    affiliateUrl: 'https://www.flight-insight.com/private-pilot-ground-school',
+    id: 'david-clark-h10-13.4',
+    name: 'David Clark H10-13.4',
+    tagline: 'Classic passive — tank-tough for the rental fleet',
+    price: '$355',
+    category: 'headsets',
+    badge: 'BUDGET',
+    affiliateUrl: 'https://www.amazon.com/dp/B00069E602',
   },
+
+  // ── Apps & Subscriptions ────────────────────────────────────────────────
   {
-    id: 'foreflight-basic',
-    name: 'ForeFlight Basic',
-    tagline: 'The EFB standard — every pilot eventually gets it',
-    price: '$99/yr',
+    id: 'foreflight',
+    name: 'ForeFlight Basic Plus',
+    tagline: 'The standard EFB — charts, weather, flight plan filing',
+    price: '$120/yr',
     category: 'apps',
     badge: 'ESSENTIAL',
     affiliateUrl: 'https://foreflight.com/products/foreflight-mobile/',
   },
-  // ── Navigation ───────────────────────────────────────────────────────────
   {
-    id: 'asa-cx3',
-    name: 'ASA CX-3 Flight Computer',
-    tagline: 'Electronic E6B with built-in flight planning',
-    price: '$60',
+    id: 'pilot-institute-ppl',
+    name: 'Pilot Institute Private Pilot',
+    tagline: 'Full PPL ground school — written-test prep included',
+    price: '$199',
+    category: 'apps',
+    badge: 'TOP PICK',
+    affiliateUrl: 'https://pilotinstitute.com/courses/private-pilot/',
+  },
+  {
+    id: 'sportys-pilot-training',
+    name: "Sporty's Learn to Fly Course",
+    tagline: 'Video-first PPL curriculum — pairs well with flight lessons',
+    price: '$280',
+    category: 'apps',
+    affiliateUrl: 'https://www.sportys.com/learn-to-fly-course.html',
+  },
+
+  // ── Navigation ──────────────────────────────────────────────────────────
+  {
+    id: 'stratus-3',
+    name: 'Stratus 3',
+    tagline: 'In-cockpit ADS-B traffic + weather, no subscription',
+    price: '$699',
     category: 'navigation',
     badge: 'TOP PICK',
-    affiliateUrl: 'https://www.pilotmall.com/products/asa-cx-3-flight-computer',
+    affiliateUrl: 'https://www.amazon.com/dp/B07HJ9KFRR',
   },
   {
-    id: 'sportys-e6b',
-    name: "Sporty's Electronic E6B",
-    tagline: 'Compact and reliable for checkride day',
-    price: '$20',
+    id: 'sentry-mini',
+    name: 'Sentry Mini',
+    tagline: 'ADS-B-in for ForeFlight — pocketable backup',
+    price: '$499',
     category: 'navigation',
-    affiliateUrl: 'https://www.pilotmall.com/products/sportys-electronic-e6b-flight-computer',
+    badge: 'BUDGET',
+    affiliateUrl: 'https://www.amazon.com/dp/B07Y8KQSVT',
   },
   {
-    id: 'asa-plotter',
-    name: 'ASA VFR Plotter',
-    tagline: 'Required for cross-country planning',
-    price: '$8',
+    id: 'garmin-d2-mach-1',
+    name: 'Garmin D2 Mach 1 Watch',
+    tagline: 'Wrist-mounted backup nav + flight logging',
+    price: '$1,295',
     category: 'navigation',
-    affiliateUrl: 'https://www.amazon.com/dp/B000LPCSGE',
+    affiliateUrl: 'https://www.amazon.com/dp/B09T6JM8LY',
   },
-  // ── Kneeboards ───────────────────────────────────────────────────────────
+
+  // ── Kneeboards ──────────────────────────────────────────────────────────
   {
-    id: 'asa-kb3',
-    name: 'ASA KB-3 Kneeboard',
-    tagline: 'Secure clipboard for cockpit notes',
-    price: '$35',
+    id: 'flight-gear-ipad-kneeboard',
+    name: 'Flight Gear iPad Kneeboard',
+    tagline: 'Pivoting mount — works in tight C172/C152 cockpits',
+    price: '$45',
     category: 'kneeboards',
-    badge: 'TOP PICK',
-    affiliateUrl: 'https://www.pilotmall.com/products/asa-kb-3-kneeboard',
+    badge: 'BUDGET',
+    affiliateUrl: 'https://www.amazon.com/dp/B009UJVT38',
   },
   {
-    id: 'sportys-kneeboard',
-    name: "Sporty's Dual Ring Kneeboard",
-    tagline: 'Two-ring design keeps pages flat',
-    price: '$30',
+    id: 'mygoflight-folio',
+    name: 'MyGoFlight Folio C',
+    tagline: 'Premium leather — fits iPad Mini through Pro 11',
+    price: '$159',
     category: 'kneeboards',
-    affiliateUrl: 'https://www.pilotmall.com/products/sportys-dual-ring-kneeboard',
-  },
-  // ── Books ────────────────────────────────────────────────────────────────
-  {
-    id: 'jeppesen-ppl',
-    name: 'Jeppesen Private Pilot Manual',
-    tagline: 'Comprehensive illustrated ground school text',
-    price: '$70',
-    category: 'books',
-    affiliateUrl: 'https://www.amazon.com/s?k=Jeppesen+private+pilot+manual',
+    affiliateUrl: 'https://www.amazon.com/dp/B07YC3GG3X',
   },
   {
-    id: 'rod-machado-ppl',
-    name: "Rod Machado's Private Pilot Handbook",
-    tagline: 'Conversational style, loved by self-studiers',
-    price: '$55',
-    category: 'books',
-    affiliateUrl: 'https://www.amazon.com/s?k=Rod+Machado+private+pilot+handbook',
+    id: 'asa-tri-fold',
+    name: 'ASA VFR Tri-Fold Kneeboard',
+    tagline: 'Paper sectional + checklist holder — pre-checkride classic',
+    price: '$29',
+    category: 'kneeboards',
+    affiliateUrl: 'https://www.amazon.com/dp/B000XX9OAQ',
   },
+
+  // ── Books ───────────────────────────────────────────────────────────────
   {
-    id: 'far-aim-2025',
-    name: 'FAR/AIM 2025',
-    tagline: 'Required reading — regulations and procedures',
-    price: '$20',
+    id: 'far-aim-current',
+    name: 'FAR/AIM 2026',
+    tagline: 'Reference you actually need on the checkride',
+    price: '$22',
     category: 'books',
     badge: 'ESSENTIAL',
-    affiliateUrl: 'https://www.amazon.com/s?k=FAR+AIM+2025',
+    affiliateUrl: 'https://www.amazon.com/dp/1644253291',
   },
   {
     id: 'phak',
     name: "Pilot's Handbook of Aeronautical Knowledge",
     tagline: "The FAA's own textbook — print beats PDF",
-    price: '$14',
+    price: '$32',
     category: 'books',
     affiliateUrl: 'https://www.amazon.com/dp/1644251345',
+  },
+  {
+    id: 'airplane-flying-handbook',
+    name: 'Airplane Flying Handbook',
+    tagline: 'FAA H-8083-3C — the maneuvers reference',
+    price: '$28',
+    category: 'books',
+    affiliateUrl: 'https://www.amazon.com/dp/1644251353',
+  },
+  {
+    id: 'say-again-please',
+    name: 'Say Again, Please',
+    tagline: 'Bob Gardner — the classic VFR comms book',
+    price: '$25',
+    category: 'books',
+    badge: 'TOP PICK',
+    affiliateUrl: 'https://www.amazon.com/dp/1619544857',
   },
 ]
 
 export function openProduct(product: GearProduct): void {
-  Linking.openURL(product.affiliateUrl).catch(() => {})
+  const trackedUrl = withAffiliateTracking(product.affiliateUrl)
+  trackClick(product.id, product.affiliateUrl)
+  Linking.openURL(trackedUrl).catch(() => {})
 }
 
 export function filterProducts(category: CategoryId | 'all'): GearProduct[] {
