@@ -6,6 +6,19 @@ import type { BadgeId } from '@/lib/badges'
 import { createRun, saveAttempt, closeRun } from '@/lib/db'
 import { supabase } from '@/lib/supabase'
 
+const TAIL_KEY = 'flight_tail_number'
+
+// Lazy AsyncStorage access — keeps test environments that don't mock the native
+// module loadable. The import resolves on first use, not at module init.
+async function persistTail(value: string): Promise<void> {
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default
+    await AsyncStorage.setItem(TAIL_KEY, value)
+  } catch {
+    // No-op in environments without the native module (tests, SSR)
+  }
+}
+
 interface FlightStore {
   pack: ContentPack | null
   scenarioContext: ScenarioContext | null
@@ -95,7 +108,11 @@ export const useFlightStore = create<FlightStore>((set, get) => ({
   },
 
   setSelectedAccent: (accent) => set({ selectedAccent: accent }),
-  setTailNumber: (n) => set({ tailNumber: n }),
+  setTailNumber: (n) => {
+    set({ tailNumber: n })
+    // Persist so the next session opens with the user's saved callsign
+    persistTail(n)
+  },
   setSessionNewBadges: (ids) => set({ sessionNewBadges: ids }),
 
   getScore: () => {

@@ -68,11 +68,21 @@ export const useAirportStore = create<AirportStore>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const [packsRaw, selectedRaw, arrivalRaw] = await Promise.all([
+      const [packsRaw, selectedRaw, arrivalRaw, tailRaw] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEY),
         AsyncStorage.getItem(SELECTED_KEY),
         AsyncStorage.getItem(ARRIVAL_KEY),
+        AsyncStorage.getItem('flight_tail_number'),
       ])
+
+      // Restore saved tail number into flightStore so HUD reads it on first render.
+      // Dynamic import to avoid circular dep with flightStore.
+      if (tailRaw) {
+        try {
+          const { useFlightStore } = await import('@/store/flightStore')
+          useFlightStore.setState({ tailNumber: tailRaw })
+        } catch {}
+      }
 
       const CURRENT_SCHEMA = 5
 
