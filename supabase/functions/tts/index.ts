@@ -29,9 +29,24 @@ function expandAviationText(text: string): string {
   }
   s = s.replace(/\binformation\s+([A-Z])\b/g, (_m, l) => `information ${PHONETIC[l]}`)
 
+  // ── Aviation digit names (FAA: 9 → "niner", reused across rules below) ───────
+  const DIGIT_NAMES = ['zero','one','two','three','four','five','six','seven','eight','niner']
+  const spellDigits = (s: string) => s.split('').map(d => DIGIT_NAMES[+d]).join(' ')
+
+  // ── N-number callsigns — "N73324" → "November seven three three two four" ───
+  // Matches N + 1-5 digits + 0-2 trailing letters (e.g. N12345, N8472K, N1AB).
+  // FAA AIM 4-2-4: the N-prefix is spoken as "November" on initial contact and
+  // remains conventional throughout the trainer for realism.
+  s = s.replace(/\bN(\d{1,5})([A-Z]{0,2})\b/g, (_m, digits: string, letters: string) => {
+    const numPart = spellDigits(digits)
+    const letterPart = letters
+      ? ' ' + letters.split('').map(l => PHONETIC[l] ?? l).join(' ')
+      : ''
+    return `November ${numPart}${letterPart}`
+  })
+
   // ── Altimeter — always four digits ──────────────────────────────────────────
   // "altimeter 30.02" or "altimeter 3002" → "altimeter three zero zero two"
-  const DIGIT_NAMES = ['zero','one','two','three','four','five','six','seven','eight','niner']
   s = s.replace(/\baltimeter\s+(\d{2})\.?(\d{2})\b/gi, (_m, hi, lo) => {
     const digits = (hi + lo).split('').map((d: string) => DIGIT_NAMES[+d]).join(' ')
     return `altimeter ${digits}`
@@ -120,9 +135,9 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // v7: AIM-compliant number pronunciation + forbidden-phrase stripping
+  // v8: N-number callsign expansion ("N73324" → "November seven three three two four")
   const instructionHash = instructions ? await sha256hex(instructions) : 'default'
-  const cacheKey = await sha256hex(`v7:${voiceName}:${instructionHash}:${text}`)
+  const cacheKey = await sha256hex(`v8:${voiceName}:${instructionHash}:${text}`)
   const filename = `${cacheKey}.mp3`
 
   // Check storage cache first

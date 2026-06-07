@@ -21,15 +21,29 @@ async function transcribe(blob: Blob, filename: string): Promise<ASRResult> {
   const formData = new FormData()
   formData.append('audio', blob, filename)
 
-  let res: Response
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/asr`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
-      body: formData,
-    })
-  } catch (e) {
-    const reason = `network error: ${e}`
+  // Single retry on fetch-level network failure (TypeError: Failed to fetch).
+  // 500ms delay between attempts. HTTP-level errors (4xx/5xx) are NOT retried
+  // since the server may have already consumed tokens.
+  let res: Response | null = null
+  let networkErr: unknown = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 500))
+    try {
+      res = await fetch(`${SUPABASE_URL}/functions/v1/asr`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: formData,
+      })
+      networkErr = null
+      break
+    } catch (e) {
+      networkErr = e
+      console.warn(`[ASR] fetch attempt ${attempt + 1} failed:`, e)
+    }
+  }
+
+  if (!res) {
+    const reason = `network error: ${networkErr}`
     console.error('[ASR]', reason)
     return { transcript: '', confidence: 0, errorReason: reason }
   }
