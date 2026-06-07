@@ -36,13 +36,38 @@ function expandAviationText(text: string): string {
   // ── N-number callsigns — "N73324" → "November seven three three two four" ───
   // Matches N + 1-5 digits + 0-2 trailing letters (e.g. N12345, N8472K, N1AB).
   // FAA AIM 4-2-4: the N-prefix is spoken as "November" on initial contact and
-  // remains conventional throughout the trainer for realism.
-  s = s.replace(/\bN(\d{1,5})([A-Z]{0,2})\b/g, (_m, digits: string, letters: string) => {
+  // remains conventional throughout the trainer for realism. Case-insensitive.
+  s = s.replace(/\bN(\d{1,5})([A-Za-z]{0,2})\b/g, (_m, digits: string, letters: string) => {
     const numPart = spellDigits(digits)
     const letterPart = letters
-      ? ' ' + letters.split('').map(l => PHONETIC[l] ?? l).join(' ')
+      ? ' ' + letters.toUpperCase().split('').map(l => PHONETIC[l] ?? l).join(' ')
       : ''
     return `November ${numPart}${letterPart}`
+  })
+
+  // ── Runway designators — "25R" → "two five right", "31L" → "three one left" ──
+  // L/R/C are the direction qualifier per AIM 4-3-1, NOT phonetic letters.
+  // Handle this BEFORE the generic letter expansion below.
+  const DIRECTION: Record<string, string> = { L: 'left', R: 'right', C: 'center' }
+  s = s.replace(/\brunway\s+(\d{1,2})\s*([LRClrc])\b/g, (_m, num: string, dir: string) => {
+    const dirWord = DIRECTION[dir.toUpperCase()]
+    return `runway ${spellDigits(num.padStart(2, '0'))} ${dirWord}`
+  })
+  // Runway without direction letter
+  s = s.replace(/\brunway\s+(\d{1,2})\b/g, (_m, num: string) => {
+    return `runway ${spellDigits(num.padStart(2, '0'))}`
+  })
+  // Standalone "hold short of runway 25R" / "via 25 left" mentions of the
+  // direction letter alone (already handled by the runway pattern above when
+  // attached, this catches "the 25 right" style omissions).
+  s = s.replace(/\b(\d{1,2})\s*([LRC])\b(?!\s*kHz)/g, (_m, num: string, dir: string) => {
+    return `${spellDigits(num)} ${DIRECTION[dir]}`
+  })
+
+  // ── Taxiway / via single-letter IDs — "taxiway A" → "taxiway Alpha" ─────────
+  // Covers taxi instructions, hand-off ("contact ground via C"), etc.
+  s = s.replace(/\b(taxiway|taxi|via|on)\s+([A-Z])\b/g, (_m, prefix: string, l: string) => {
+    return `${prefix} ${PHONETIC[l] ?? l}`
   })
 
   // ── Altimeter — always four digits ──────────────────────────────────────────
@@ -135,9 +160,10 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   )
 
-  // v8: N-number callsign expansion ("N73324" → "November seven three three two four")
+  // v9: comprehensive phonetic expansion — runway L/R/C → left/right/center,
+  // taxiway/via letters → ICAO phonetic (Alpha/Bravo/etc.), N-numbers expanded
   const instructionHash = instructions ? await sha256hex(instructions) : 'default'
-  const cacheKey = await sha256hex(`v8:${voiceName}:${instructionHash}:${text}`)
+  const cacheKey = await sha256hex(`v9:${voiceName}:${instructionHash}:${text}`)
   const filename = `${cacheKey}.mp3`
 
   // Check storage cache first
